@@ -39,7 +39,6 @@
 #include "alex_base.h"
 #include "alex_fanout_tree.h"
 #include "alex_nodes.h"
-
 // Whether we account for floating-point precision issues when traversing down
 // ALEX.
 // These issues rarely occur in practice but can cause incorrect behavior.
@@ -147,20 +146,25 @@ class Alex {
   };
   ExperimentalParams experimental_params_;
 
-  struct benchmarkStat {
-    using std::chrono::steady_clock::time_point = tp;
+  // yj
+  struct BenchmarkStat {
+    using tp = std::chrono::steady_clock::time_point;
+    using time = std::chrono::duration<double>;
     tp sp;
     tp leaf_ep;
     tp find_key_ep;
     tp pre_sp;
     tp pre_ep; // find_key의 predicted pos funtion end point 
     tp search_ep; // exponential_search function in find_key
-    auto leaf_time;
-    auto find_key_time;
-    auto predict_time;
-    auto search_time;
+    time leaf_time;
+    time find_key_time;
+    time predict_time;
+    time search_time;
   }ben_stat;
-
+    
+  BenchmarkStat get_benchmark_stat() const {
+	return ben_stat;
+  }
   /* Structs used internally */
 
  private:
@@ -227,7 +231,7 @@ class Alex {
   Alex() {
     // Set up root as empty data node
     auto empty_data_node = new (data_node_allocator().allocate(1))
-        data_node_type(key_less_, allocator_,ben_stat);
+        data_node_type(key_less_, allocator_, &this); // yj
     empty_data_node->bulk_load(nullptr, 0);
     root_node_ = empty_data_node;
     stats_.num_data_nodes++;
@@ -238,7 +242,7 @@ class Alex {
       : key_less_(comp), allocator_(alloc) {
     // Set up root as empty data node
     auto empty_data_node = new (data_node_allocator().allocate(1))
-        data_node_type(key_less_, allocator_,ben_stat);
+        data_node_type(key_less_, allocator_,&this); // yj
     empty_data_node->bulk_load(nullptr, 0);
     root_node_ = empty_data_node;
     stats_.num_data_nodes++;
@@ -248,7 +252,7 @@ class Alex {
   Alex(const Alloc& alloc) : allocator_(alloc) {
     // Set up root as empty data node
     auto empty_data_node = new (data_node_allocator().allocate(1))
-        data_node_type(key_less_, allocator_,ben_stat);
+        data_node_type(key_less_, allocator_,&this); // yj
     empty_data_node->bulk_load(nullptr, 0);
     root_node_ = empty_data_node;
     stats_.num_data_nodes++;
@@ -347,7 +351,7 @@ class Alex {
 
  private:
   // Deep copy of tree starting at given node
-  Alexben_statNode<T, P>* copy_tree_recursive(const AlexNode<T, P>* node) {
+  AlexNode<T, P>* copy_tree_recursive(const AlexNode<T, P>* node) {
     if (!node) return nullptr;
     if (node->is_leaf_) {
       return new (data_node_allocator().allocate(1))
@@ -921,7 +925,7 @@ class Alex {
   typename self_type::Iterator find(const T& key) {
     stats_.num_lookups++;
     data_node_type* leaf = get_leaf(key);
-    int idx = leaf->find_key(key);
+    int idx = leaf->find_key(key, &this);
     if (idx < 0) {
       return end();
     } else {
@@ -932,7 +936,7 @@ class Alex {
   typename self_type::ConstIterator find(const T& key) const {
     stats_.num_lookups++;
     data_node_type* leaf = get_leaf(key);
-    int idx = leaf->find_key(key);
+    int idx = leaf->find_key(key, &this);
     if (idx < 0) {
       return cend();
     } else {
@@ -998,11 +1002,16 @@ class Alex {
   // Returns null pointer if there is no exact match of the key
   P* get_payload(const T& key) const {
     stats_.num_lookups++;
-    ben_stat.sp = std::chrono_steady_clock::now();
+    // yj
+    ben_stat.sp = std::chrono::steady_clock::now();
+    
     data_node_type* leaf = get_leaf(key);
-    ben_stat.leaf_ep = std::chrono_steady_clock::now();
-    int idx = leaf->find_key(key);
-    ben_stat.find_key_ep = std::chrono_steady_clock::now();
+    
+    ben_stat.leaf_ep = std::chrono::steady_clock::now();
+    
+    int idx = leaf->find_key(key, &this);
+    
+    ben_stat.find_key_ep = std::chrono::steady_clock::now();
     ben_stat.leaf_time += std::chrono::duration_cast<std::chrono::nanoseconds>(ben_stat.leaf_ep - ben_stat.sp);
     ben_stat.find_key_time += std::chrono::duration_cast<std::chrono::nanoseconds>(ben_stat.find_key_ep - ben_stat.leaf_ep);
     if (idx < 0) {

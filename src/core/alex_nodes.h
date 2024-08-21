@@ -11,6 +11,8 @@
 #pragma once
 
 #include "alex_base.h"
+#include "alex.h" // yj
+#include "alex_fanout_tree.h" // yj
 
 // Whether we store key and payload arrays separately in data nodes
 // By default, we store them separately
@@ -35,9 +37,8 @@ namespace alex {
     // A parent class for both types of ALEX nodes
     template <class T, class P>
 	class AlexNode {
-	    benchmarkStat& ben_stat_;
-
 	    public:
+
 	    // Whether this node is a leaf (data) node
 	    bool is_leaf_ = false;
 
@@ -58,8 +59,8 @@ namespace alex {
 	    double cost_ = 0.0;
 
 	    AlexNode() = default;
-	    explicit AlexNode(short level, benchmarkStat& stat) : level_(level), ben_stat_(stat) {}
-	    AlexNode(short level, bool is_leaf, benchmarkStat& stat) : is_leaf_(is_leaf), level_(level), ben_stat_(stat) {}
+	    explicit AlexNode(short level) : level_(level) {}
+	    AlexNode(short level, bool is_leaf) : is_leaf_(is_leaf) {}
 	    virtual ~AlexNode() = default;
 
 	    // The size in bytes of all member variables in this class
@@ -305,6 +306,7 @@ namespace alex {
 			 const Compare& key_less_;
 			 const Alloc& allocator_;
 
+
 			 // Forward declaration
 			 template <typename node_type = self_type, typename payload_return_type = P,
 				  typename value_return_type = V>
@@ -379,18 +381,23 @@ namespace alex {
 			 // Placed at the end of the key/data slots if there are gaps after the max key
 			 static constexpr T kEndSentinel_ = std::numeric_limits<T>::max();
 
-			 /*** Constructors and destructors ***/
+			 // yj
+			 // class Alex;
+			 typedef alex::Alex<T, P, Compare, Alloc, allow_duplicates> Alex_type;
+			 Alex_type* alex_ptr;
 
+			 /*** Constructors and destructors ***/
 			 explicit AlexDataNode(const Compare& comp = Compare(),
-				 const Alloc& alloc = Alloc())
-			     : AlexNode<T, P>(0, true), key_less_(comp), allocator_(alloc) {}
+				 const Alloc& alloc = Alloc(), Alex_type* parent)
+			     : AlexNode<T, P>(0, true), key_less_(comp), allocator_(alloc), alex_ptr(parent)   {}
 
 			 AlexDataNode(short level, int max_data_node_slots,
-				 const Compare& comp = Compare(), const Alloc& alloc = Alloc())
+				 const Compare& comp = Compare(), const Alloc& alloc = Alloc(), Alex_type* parent)
 			     : AlexNode<T, P>(level, true),
 			     key_less_(comp),
 			     allocator_(alloc),
-			     max_slots_(max_data_node_slots) {}
+			     max_slots_(max_data_node_slots),
+			     alex_ptr(parent) {}
 
 			 ~AlexDataNode() {
 #if ALEX_DATA_NODE_SEP_ARRAYS
@@ -1453,19 +1460,20 @@ namespace alex {
 			     return position;
 			 }
 
+			 // yj
 			 // Searches for the last non-gap position equal to key
 			 // If no positions equal to key, returns -1
 			 int find_key(const T& key) {
 			     num_lookups_++;
-			     ben_stat_.pre_sp =  std::chrono::steady_clock::now();
+			     alex_ptr->ben_stat.pre_sp =  std::chrono::steady_clock::now();
 			     int predicted_pos = predict_position(key);
-			     ben_stat_.pre_ep = std::chrono::steady_clock::now();
+			     alex_ptr->ben_stat.pre_ep = std::chrono::steady_clock::now();
 			     // The last key slot with a certain value is guaranteed to be a real key
 			     // (instead of a gap)
 			     int pos = exponential_search_upper_bound(predicted_pos, key) - 1;
-			     ben_stat_.search_ep = std::chrono::steady_clock::now();
-			     ben_stat_.predict_time += std::chrono::duration_cast<std::chrono::nanoseconds>(ben_stat_.pre_ep - ben_stat_.pre_sp);
-			     ben_stat_.search_time += std::chrono::duration_cast<std::chrono::nanoseconds>(ben_stat_.search_ep - ben_stat_.pre_ep);
+			     alex_ptr->ben_stat.search_ep = std::chrono::steady_clock::now();
+			     alex_ptr->ben_stat.predict_time += std::chrono::duration_cast<std::chrono::nanoseconds>(alex_ptr->ben_stat.pre_ep - alex_ptr->ben_stat.pre_sp);
+			     alex_ptr->ben_stat.search_time += std::chrono::duration_cast<std::chrono::nanoseconds>(alex_ptr->ben_stat.search_ep - alex_ptr->ben_stat.pre_ep);
 			     if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
 				 return -1;
 			     } else {
