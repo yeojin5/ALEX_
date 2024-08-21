@@ -34,7 +34,7 @@
 #include <iostream>
 #include <stack>
 #include <type_traits>
-#include <chrono> //yj
+#include <vector>
 
 #include "alex_base.h"
 #include "alex_fanout_tree.h"
@@ -146,26 +146,7 @@ class Alex {
   };
   ExperimentalParams experimental_params_;
 
-  // yj
-  struct BenchmarkStat {
-    using tp = std::chrono::steady_clock::time_point;
-    using time = std::chrono::duration<double>;
-    tp sp;
-    tp leaf_ep;
-    tp find_key_ep;
-    tp pre_sp;
-    tp pre_ep; // find_key의 predicted pos funtion end point 
-    tp search_ep; // exponential_search function in find_key
-    time leaf_time;
-    time find_key_time;
-    time predict_time;
-    time search_time;
-  }ben_stat;
-    
-  BenchmarkStat get_benchmark_stat() const {
-	return ben_stat;
-  }
-  /* Structs used internally */
+  Bstat bstat;
 
  private:
   /* Statistics related to the key domain.
@@ -231,7 +212,7 @@ class Alex {
   Alex() {
     // Set up root as empty data node
     auto empty_data_node = new (data_node_allocator().allocate(1))
-        data_node_type(key_less_, allocator_, &this); // yj
+        data_node_type(key_less_, allocator_);
     empty_data_node->bulk_load(nullptr, 0);
     root_node_ = empty_data_node;
     stats_.num_data_nodes++;
@@ -242,7 +223,7 @@ class Alex {
       : key_less_(comp), allocator_(alloc) {
     // Set up root as empty data node
     auto empty_data_node = new (data_node_allocator().allocate(1))
-        data_node_type(key_less_, allocator_,&this); // yj
+        data_node_type(key_less_, allocator_); 
     empty_data_node->bulk_load(nullptr, 0);
     root_node_ = empty_data_node;
     stats_.num_data_nodes++;
@@ -252,7 +233,7 @@ class Alex {
   Alex(const Alloc& alloc) : allocator_(alloc) {
     // Set up root as empty data node
     auto empty_data_node = new (data_node_allocator().allocate(1))
-        data_node_type(key_less_, allocator_,&this); // yj
+        data_node_type(key_less_, allocator_);
     empty_data_node->bulk_load(nullptr, 0);
     root_node_ = empty_data_node;
     stats_.num_data_nodes++;
@@ -1000,25 +981,31 @@ class Alex {
   // Directly returns a pointer to the payload found through find(key)
   // This avoids the overhead of creating an iterator
   // Returns null pointer if there is no exact match of the key
-  P* get_payload(const T& key) const {
+  P* get_payload(const T& key) {
     stats_.num_lookups++;
     // yj
-    ben_stat.sp = std::chrono::steady_clock::now();
+    bstat.total_start = std::chrono::system_clock::now(); // yj
     
+    auto tmp = Point();
+    tmp.OP = operation::LEAF;
+    tmp.start = std::chrono::system_clock::now();
     data_node_type* leaf = get_leaf(key);
+    tmp.end = std::chrono::system_clock::now();
+    bstat.points.push_back(tmp);
     
-    ben_stat.leaf_ep = std::chrono::steady_clock::now();
+    auto f_key = Point();
+    f_key.OP = operation::FIND_KEY;
+    f_key.start = std::chrono::system_clock::now();
+    int idx = leaf->find_key(key, &bstat);
+    f_key.end = std::chrono::system_clock::now();
+    bstat.points.push_back(f_key);
     
-    int idx = leaf->find_key(key, &this);
-    
-    ben_stat.find_key_ep = std::chrono::steady_clock::now();
-    ben_stat.leaf_time += std::chrono::duration_cast<std::chrono::nanoseconds>(ben_stat.leaf_ep - ben_stat.sp);
-    ben_stat.find_key_time += std::chrono::duration_cast<std::chrono::nanoseconds>(ben_stat.find_key_ep - ben_stat.leaf_ep);
     if (idx < 0) {
       return nullptr;
     } else {
       return &(leaf->get_payload(idx));
     }
+    bstat.total_end = std::chrono::system_clock::now();
   }
 
   // Looks for the last key no greater than the input value

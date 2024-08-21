@@ -10,9 +10,9 @@
 
 #pragma once
 
+//#include "alex.h" // yj
 #include "alex_base.h"
-#include "alex.h" // yj
-#include "alex_fanout_tree.h" // yj
+//#include "alex_fanout_tree.h" // yj
 
 // Whether we store key and payload arrays separately in data nodes
 // By default, we store them separately
@@ -39,32 +39,32 @@ namespace alex {
 	class AlexNode {
 	    public:
 
-	    // Whether this node is a leaf (data) node
-	    bool is_leaf_ = false;
+		// Whether this node is a leaf (data) node
+		bool is_leaf_ = false;
 
-	    // Power of 2 to which the pointer to this node is duplicated in its parent
-	    // model node
-	    // For example, if duplication_factor_ is 3, then there are 8 redundant
-	    // pointers to this node in its parent
-	    uint8_t duplication_factor_ = 0;
+		// Power of 2 to which the pointer to this node is duplicated in its parent
+		// model node
+		// For example, if duplication_factor_ is 3, then there are 8 redundant
+		// pointers to this node in its parent
+		uint8_t duplication_factor_ = 0;
 
-	    // Node's level in the RMI. Root node is level 0
-	    short level_ = 0;
+		// Node's level in the RMI. Root node is level 0
+		short level_ = 0;
 
-	    // Both model nodes and data nodes nodes use models
-	    LinearModel<T> model_;
+		// Both model nodes and data nodes nodes use models
+		LinearModel<T> model_;
 
-	    // Could be either the expected or empirical cost, depending on how this field
-	    // is used
-	    double cost_ = 0.0;
+		// Could be either the expected or empirical cost, depending on how this field
+		// is used
+		double cost_ = 0.0;
 
-	    AlexNode() = default;
-	    explicit AlexNode(short level) : level_(level) {}
-	    AlexNode(short level, bool is_leaf) : is_leaf_(is_leaf) {}
-	    virtual ~AlexNode() = default;
+		AlexNode() = default;
+		explicit AlexNode(short level) : level_(level) {}
+		AlexNode(short level, bool is_leaf) : is_leaf_(is_leaf) {}
+		virtual ~AlexNode() = default;
 
-	    // The size in bytes of all member variables in this class
-	    virtual long long node_size() const = 0;
+		// The size in bytes of all member variables in this class
+		virtual long long node_size() const = 0;
 	};
 
     template <class T, class P, class Alloc = std::allocator<std::pair<T, P>>>
@@ -383,37 +383,37 @@ namespace alex {
 
 			 // yj
 			 // class Alex;
-			 typedef alex::Alex<T, P, Compare, Alloc, allow_duplicates> Alex_type;
-			 Alex_type* alex_ptr;
+			 //typedef alex::Alex<T, P, Compare, Alloc, allow_duplicates> Alex_type;
+			 //Alex_type* alex_ptr;
 
 			 /*** Constructors and destructors ***/
 			 explicit AlexDataNode(const Compare& comp = Compare(),
-				 const Alloc& alloc = Alloc(), Alex_type* parent)
-			     : AlexNode<T, P>(0, true), key_less_(comp), allocator_(alloc), alex_ptr(parent)   {}
+				 const Alloc& alloc = Alloc()/*, Alex_type* parent*/)
+			     : AlexNode<T, P>(0, true), key_less_(comp), allocator_(alloc)/*, alex_ptr(parent)*/   {}
 
 			 AlexDataNode(short level, int max_data_node_slots,
-				 const Compare& comp = Compare(), const Alloc& alloc = Alloc(), Alex_type* parent)
+				 const Compare& comp = Compare(), const Alloc& alloc = Alloc() /*Alex_type* parent*/)
 			     : AlexNode<T, P>(level, true),
 			     key_less_(comp),
 			     allocator_(alloc),
-			     max_slots_(max_data_node_slots),
-			     alex_ptr(parent) {}
+			     max_slots_(max_data_node_slots)/*,
+							      alex_ptr(parent)*/ {}
 
-			 ~AlexDataNode() {
+			       ~AlexDataNode() {
 #if ALEX_DATA_NODE_SEP_ARRAYS
-			     if (key_slots_ == nullptr) {
-				 return;
-			     }
-			     key_allocator().deallocate(key_slots_, data_capacity_);
-			     payload_allocator().deallocate(payload_slots_, data_capacity_);
+				   if (key_slots_ == nullptr) {
+				       return;
+				   }
+				   key_allocator().deallocate(key_slots_, data_capacity_);
+				   payload_allocator().deallocate(payload_slots_, data_capacity_);
 #else
-			     if (data_slots_ == nullptr) {
-				 return;
-			     }
-			     value_allocator().deallocate(data_slots_, data_capacity_);
+				   if (data_slots_ == nullptr) {
+				       return;
+				   }
+				   value_allocator().deallocate(data_slots_, data_capacity_);
 #endif
-			     bitmap_allocator().deallocate(bitmap_, bitmap_size_);
-			 }
+				   bitmap_allocator().deallocate(bitmap_, bitmap_size_);
+			       }
 
 			 AlexDataNode(const self_type& other)
 			     : AlexNode<T, P>(other),
@@ -1463,22 +1463,32 @@ namespace alex {
 			 // yj
 			 // Searches for the last non-gap position equal to key
 			 // If no positions equal to key, returns -1
-			 int find_key(const T& key) {
+			 int find_key(const T& key, Bstat* bstat) {
 			     num_lookups_++;
-			     alex_ptr->ben_stat.pre_sp =  std::chrono::steady_clock::now();
+			     //alex_ptr->ben_stat.pre_sp =  std::chrono::steady_clock::now();
+			     auto pred = Point();
+			     pred.OP = operation::PREDICT;
+			     pred.start = std::chrono::system_clock::now();
 			     int predicted_pos = predict_position(key);
-			     alex_ptr->ben_stat.pre_ep = std::chrono::steady_clock::now();
+			     pred.end = std::chrono::system_clock::now();
+			     bstat->points.push_back(pred);
+
+			     //alex_ptr->ben_stat.pre_ep = std::chrono::steady_clock::now();
 			     // The last key slot with a certain value is guaranteed to be a real key
 			     // (instead of a gap)
+			     auto search = Point();
+			     search.OP = operation::SEARCH;
+			     search.start = std::chrono::system_clock::now();
 			     int pos = exponential_search_upper_bound(predicted_pos, key) - 1;
-			     alex_ptr->ben_stat.search_ep = std::chrono::steady_clock::now();
-			     alex_ptr->ben_stat.predict_time += std::chrono::duration_cast<std::chrono::nanoseconds>(alex_ptr->ben_stat.pre_ep - alex_ptr->ben_stat.pre_sp);
-			     alex_ptr->ben_stat.search_time += std::chrono::duration_cast<std::chrono::nanoseconds>(alex_ptr->ben_stat.search_ep - alex_ptr->ben_stat.pre_ep);
+
 			     if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
 				 return -1;
 			     } else {
 				 return pos;
 			     }
+			     search.end = std::chrono::system_clock::now();
+			     bstat->points.push_back(search);
+
 			 }
 
 			 // Searches for the first non-gap position no less than key
