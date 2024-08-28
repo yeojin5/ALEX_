@@ -58,7 +58,8 @@ namespace alex{
 	LEAF = 0,
 	FIND_KEY = 1,
 	PREDICT = 2,
-	SEARCH = 3
+	SEARCH = 3,
+	BIN_SEARCH = 4
     };
 
     struct Point{
@@ -77,6 +78,7 @@ namespace alex{
 	nano fk_sec{0};
 	nano pred_sec{0};
 	nano search_sec{0};
+	nano bin_search_sec{0};
 
 	void calculate_point() {
 	    while (!points.empty()) {
@@ -94,16 +96,21 @@ namespace alex{
 		    case SEARCH:
 			search_sec += std::chrono::duration_cast<nano>(last_point.end - last_point.start);
 			break;
+		    case BIN_SEARCH:
+			bin_search_sec += std::chrono::duration_cast<nano>(last_point.end - last_point.start);
+			break;
+
 		}
 		points.pop_back();
 	    }
 	}
 
 	void print_stat() {
-	    std::cout << "leaf_sec" << leaf_sec.count() << std::endl;
-	    std::cout << "fk_sec" << fk_sec.count() << std::endl;
-	    std::cout << "pred_sec" << pred_sec.count() << std::endl;
-	    std::cout << "search_sec" << search_sec.count() << std::endl;
+	    std::cout << "leaf_sec " << leaf_sec.count() << std::endl;
+	    std::cout << "fk_sec " << fk_sec.count() << std::endl;
+	    std::cout << "pred_sec " << pred_sec.count() << std::endl;
+	    std::cout << "search_sec " << search_sec.count() << std::endl;
+	    std::cout << "bin_search_sec " << bin_search_sec.count() << std::endl;
 	}
     };
 

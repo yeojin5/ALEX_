@@ -1482,12 +1482,14 @@ namespace alex {
 			     int pos = exponential_search_upper_bound(predicted_pos, key) - 1;
 
 			     if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
+				 search.end = std::chrono::system_clock::now();
+				 bstat->points.push_back(search);
 				 return -1;
 			     } else {
+				 search.end = std::chrono::system_clock::now();
+				 bstat->points.push_back(search);
 				 return pos;
 			     }
-			     search.end = std::chrono::system_clock::now();
-			     bstat->points.push_back(search);
 
 			 }
 
@@ -1505,20 +1507,7 @@ namespace alex {
 			 // Searches for the first non-gap position greater than key
 			 // Returns position in range [0, data_capacity]
 			 // Compare with upper_bound()
-			 int find_upper(const T& key) {
-			     num_lookups_++;
-			     int predicted_pos = predict_position(key);
-
-			     int pos = exponential_search_upper_bound(predicted_pos, key);
-			     return get_next_filled_position(pos, false);
-			 }
-
-			 // Finds position to insert a key.
-			 // First returned value takes prediction into account.
-			 // Second returned value is first valid position (i.e., upper_bound of key).
-			 // If there are duplicate keys, the insert position will be to the right of
-			 // all existing keys of the same value.
-			 std::pair<int, int> find_insert_position(const T& key) {
+			 int find_insert_position(const T& key) {
 			     int predicted_pos =
 				 predict_position(key);  // first use model to get prediction
 
@@ -1579,6 +1568,34 @@ namespace alex {
 			 // Returns position in range [0, data_capacity]
 			 template <class K>
 			     inline int exponential_search_upper_bound(int m, const K& key) {
+				 // Continue doubling the bound until it contains the upper bound. Then use
+				 // binary search.
+				 int bound = 1;
+				 int l, r;  // will do binary search in range [l, r)
+				 if (key_greater(ALEX_DATA_NODE_KEY_AT(m), key)) {
+				     int size = m;
+				     while (bound < size &&
+					     key_greater(ALEX_DATA_NODE_KEY_AT(m - bound), key)) {
+					 bound *= 2;
+					 num_exp_search_iterations_++;
+				     }
+				     l = m - std::min<int>(bound, size);
+				     r = m - bound / 2;
+				 } else {
+				     int size = data_capacity_ - m;
+				     while (bound < size &&
+					     key_lessequal(ALEX_DATA_NODE_KEY_AT(m + bound), key)) {
+					 bound *= 2;
+					 num_exp_search_iterations_++;
+				     }
+				     l = m + bound / 2;
+				     r = m + std::min<int>(bound, size);
+				 }
+				 return binary_search_upper_bound(l, r, key);
+			     }
+			// yj 
+			 template <class K>
+			     inline int bb_search_upper_bound(int m, const K& key) {
 				 // Continue doubling the bound until it contains the upper bound. Then use
 				 // binary search.
 				 int bound = 1;
