@@ -59,7 +59,8 @@ namespace alex{
 	FIND_KEY = 1,
 	PREDICT = 2,
 	SEARCH = 3,
-	BIN_SEARCH = 4
+	EX_SEARCH = 4,
+	BIN_SEARCH = 5
     };
 
     struct Point{
@@ -79,6 +80,7 @@ namespace alex{
 	nano pred_sec{0};
 	nano search_sec{0};
 	nano bin_search_sec{0};
+	nano ex_search_sec{0};
 
 	void calculate_point() {
 	    while (!points.empty()) {
@@ -95,6 +97,9 @@ namespace alex{
 			break;
 		    case SEARCH:
 			search_sec += std::chrono::duration_cast<nano>(last_point.end - last_point.start);
+			break;
+		    case EX_SEARCH:
+			ex_search_sec += std::chrono::duration_cast<nano>(last_point.end - last_point.start);
 			break;
 		    case BIN_SEARCH:
 			bin_search_sec += std::chrono::duration_cast<nano>(last_point.end - last_point.start);

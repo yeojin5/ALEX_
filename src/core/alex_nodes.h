@@ -1479,7 +1479,7 @@ namespace alex {
 			     auto search = Point();
 			     search.OP = operation::SEARCH;
 			     search.start = std::chrono::system_clock::now();
-			     int pos = exponential_search_upper_bound(predicted_pos, key) - 1;
+			     int pos = yj_exponential_search_upper_bound(predicted_pos, key, bstat) - 1;
 
 			     if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
 				 search.end = std::chrono::system_clock::now();
@@ -1593,11 +1593,15 @@ namespace alex {
 				 }
 				 return binary_search_upper_bound(l, r, key);
 			     }
-			// yj 
+			 // yj 
 			 template <class K>
-			     inline int bb_search_upper_bound(int m, const K& key) {
+			     inline int yj_exponential_search_upper_bound(int m, const K& key, Bstat* bstat) {
 				 // Continue doubling the bound until it contains the upper bound. Then use
 				 // binary search.
+				 auto ex = Point();	
+				 ex.OP = operation::EX_SEARCH;
+				 ex.start = std::chrono::system_clock::now();
+
 				 int bound = 1;
 				 int l, r;  // will do binary search in range [l, r)
 				 if (key_greater(ALEX_DATA_NODE_KEY_AT(m), key)) {
@@ -1619,6 +1623,9 @@ namespace alex {
 				     l = m + bound / 2;
 				     r = m + std::min<int>(bound, size);
 				 }
+				 ex.end = std::chrono::system_clock::now();
+				 bstat->points.push_back(ex);
+
 				 return binary_search_upper_bound(l, r, key);
 			     }
 
