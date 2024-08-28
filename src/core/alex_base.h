@@ -52,13 +52,13 @@ typedef unsigned __int32 uint32_t;
 #define forceinline inline
 #endif
 
-namespace alex {
+namespace alex{
 
     enum operation{
 	LEAF = 0,
 	FIND_KEY = 1,
 	PREDICT = 2,
-	SEARCH = 3	
+	SEARCH = 3
     };
 
     struct Point{
@@ -71,28 +71,40 @@ namespace alex {
 	public:
 	std::chrono::time_point<std::chrono::system_clock> total_start, total_end;
 	std::vector<Point> points;
-/*
-	void push_point() {
-	    for(int i = 0; i < points.size(); i++){
-		switch(points.end().OP):
-		case LEAF:
-		    leaf.push_back(points.begin());
-		    break;
+	typedef std::chrono::nanoseconds nano;
 
-		case FIND_KEY:
-		    fkey.push_back(points.begin());
-		    break;
-		
-		case PREDICT:
-		    pred.push_back(points.begin());
-		    break;
-	
-		case SEARCH:
-		    search.push_back(points.begin());
-		    break;
+	nano leaf_sec{0};
+	nano fk_sec{0};
+	nano pred_sec{0};
+	nano search_sec{0};
+
+	void calculate_point() {
+	    while (!points.empty()) {
+		Point& last_point = points.back();
+		switch (last_point.OP) {
+		    case LEAF:
+			leaf_sec += std::chrono::duration_cast<nano>(last_point.end - last_point.start);
+			break;
+		    case FIND_KEY:
+			fk_sec += std::chrono::duration_cast<nano>(last_point.end - last_point.start);
+			break;
+		    case PREDICT:
+			pred_sec += std::chrono::duration_cast<nano>(last_point.end - last_point.start);
+			break;
+		    case SEARCH:
+			search_sec += std::chrono::duration_cast<nano>(last_point.end - last_point.start);
+			break;
+		}
 		points.pop_back();
 	    }
-	}; */
+	}
+
+	void print_stat() {
+	    std::cout << "leaf_sec" << leaf_sec.count() << std::endl;
+	    std::cout << "fk_sec" << fk_sec.count() << std::endl;
+	    std::cout << "pred_sec" << pred_sec.count() << std::endl;
+	    std::cout << "search_sec" << search_sec.count() << std::endl;
+	}
     };
 
     /*** Linear model and model builder ***/
