@@ -12,6 +12,9 @@
 
 //#include "alex.h" // yj
 #include "alex_base.h"
+#include <immintrin.h>
+#include <avx512fintrin.h>
+#include <cstdint>
 //#include "alex_fanout_tree.h" // yj
 
 // Whether we store key and payload arrays separately in data nodes
@@ -25,6 +28,9 @@
 #define ALEX_DATA_NODE_KEY_AT(i) data_slots_[i].first
 #define ALEX_DATA_NODE_PAYLOAD_AT(i) data_slots_[i].second
 #endif
+
+#define SEA 0
+
 
 // Whether we use lzcnt and tzcnt when manipulating a bitmap (e.g., when finding
 // the closest gap).
@@ -1479,8 +1485,21 @@ namespace alex {
 			     auto search = Point();
 			     search.OP = operation::SEARCH;
 			     search.start = std::chrono::system_clock::now();
-			     int pos = yj_exponential_search_upper_bound(predicted_pos, key, bstat) - 1;
-
+#if SEA == 0
+			     int pos = exponential_search_upper_bound(predicted_pos, key) - 1;
+#endif
+#if SEA == 1
+			     int pos = yj_bin_search(predicted_pos, key) - 1;
+#endif		
+#if SEA == 2
+			     int pos = yj_bbin_search(predicted_pos, key) - 1;
+#endif
+#if SEA == 3
+			     int pos = yj_lin_search(predicted_pos, key) - 1;
+#endif
+#if SEA == 4
+			     int pos = yj_linSIMD_search(predicted_pos, key) - 1;
+#endif     
 			     if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
 				 search.end = std::chrono::system_clock::now();
 				 bstat->points.push_back(search);
@@ -1507,7 +1526,20 @@ namespace alex {
 			 // Searches for the first non-gap position greater than key
 			 // Returns position in range [0, data_capacity]
 			 // Compare with upper_bound()
-			 int find_insert_position(const T& key) {
+			 int find_upper(const T& key) {
+			     num_lookups_++;
+			     int predicted_pos = predict_position(key);
+
+			     int pos = exponential_search_upper_bound(predicted_pos, key);
+			     return get_next_filled_position(pos, false);
+			 }
+
+			 // Finds position to insert a key.
+			 // First returned value takes prediction into account.
+			 // Second returned value is first valid position (i.e., upper_bound of key).
+			 // If there are duplicate keys, the insert position will be to the right of
+			 // all existing keys of the same value.
+			 std::pair<int, int> find_insert_position(const T& key) {
 			     int predicted_pos =
 				 predict_position(key);  // first use model to get prediction
 
@@ -1593,40 +1625,72 @@ namespace alex {
 				 }
 				 return binary_search_upper_bound(l, r, key);
 			     }
+			// yj 
+			 template <class K>
+			     inline int yj_bin_search(int m, const K& key) {
+				 int s = 0; // start of the range
+				 int e = data_capacity_; // end of the range
+				 while(s < e){
+				     int mid = e + (s - e) / 2;
+				     if (key_lesseual(ALEX_DATA_NODE_KEY_AT(mid), key)) {
+					 s = mid + 1;
+				     } 
+				     else {
+					 e = mid;
+				     }
+				 }
+				 return s;
+			     }
+			 
+			 inline intptr_t bsr(size_t x){
+			     intptr_t ret = -1;
+			     while(x){
+				 x >>=1;
+				 ++ret;
+			     }
+			     return ret;
+			 }
+
+			// yj 
+			// this is branchless binary search
+			 template <class K>
+			     inline int yj_bbin_search(int m, const K& key) {
+				 intptr_t MINUS_ONE = -1;
+				 int n = data_capacity_;
+				 intptr_t pos = MINUS_ONE;
+				 intptr_t logstep = bsr(n);
+				 intptr_t step = intptr_t(1) << logstep;
+				 while(step > 0){
+				     pos = (ALEX_DATA_NODE_KEY_AT(step) <= key ? pos+step:pos);
+				     step >>= 1;
+				 }
+				 return pos + 1;
+			     }		
+
 			 // yj 
 			 template <class K>
-			     inline int yj_exponential_search_upper_bound(int m, const K& key, Bstat* bstat) {
-				 // Continue doubling the bound until it contains the upper bound. Then use
-				 // binary search.
-				 auto ex = Point();	
-				 ex.OP = operation::EX_SEARCH;
-				 ex.start = std::chrono::system_clock::now();
-
-				 int bound = 1;
-				 int l, r;  // will do binary search in range [l, r)
-				 if (key_greater(ALEX_DATA_NODE_KEY_AT(m), key)) {
-				     int size = m;
-				     while (bound < size &&
-					     key_greater(ALEX_DATA_NODE_KEY_AT(m - bound), key)) {
-					 bound *= 2;
-					 num_exp_search_iterations_++;
+			     inline int yj_lin_search(int m, const K& key) {
+				 int runner = 0;
+				 for (; runner != data_capacity_; ++runner)
+				     if (key_greaterequal(ALEX_DATA_NODE_KEY_AT(runner),key)) return runner;
+				 return data_capacity_;
+			     }		
+			 // yj 
+			 template <class K>
+			     inline int yj_linSIMD_search(int m, const K& key) {
+				 const K* data = &(ALEX_DATA_NODE_KEY_AT(0));
+				 __m512i values = _mm512_set1_epi32(key);
+				 int size = data_capacity_;
+				 const int step = 8;
+				 for(int i =0; i < data_capacity_; i+=step){
+				     __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
+				     __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec,values);
+				     if(cmp_mask != 0) {
+					 int index = __builtin_ctz(cmp_mask);
+					 return i+index;
 				     }
-				     l = m - std::min<int>(bound, size);
-				     r = m - bound / 2;
-				 } else {
-				     int size = data_capacity_ - m;
-				     while (bound < size &&
-					     key_lessequal(ALEX_DATA_NODE_KEY_AT(m + bound), key)) {
-					 bound *= 2;
-					 num_exp_search_iterations_++;
-				     }
-				     l = m + bound / 2;
-				     r = m + std::min<int>(bound, size);
 				 }
-				 ex.end = std::chrono::system_clock::now();
-				 bstat->points.push_back(ex);
-
-				 return binary_search_upper_bound(l, r, key);
+				 return data_capacity_;
 			     }
 
 			 // Searches for the first position greater than key in range [l, r)

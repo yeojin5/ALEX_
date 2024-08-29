@@ -53,14 +53,13 @@ typedef unsigned __int32 uint32_t;
 #endif
 
 namespace alex{
+// yj
 
     enum operation{
 	LEAF = 0,
 	FIND_KEY = 1,
 	PREDICT = 2,
-	SEARCH = 3,
-	EX_SEARCH = 4,
-	BIN_SEARCH = 5
+	SEARCH = 3
     };
 
     struct Point{
@@ -79,8 +78,6 @@ namespace alex{
 	nano fk_sec{0};
 	nano pred_sec{0};
 	nano search_sec{0};
-	nano bin_search_sec{0};
-	nano ex_search_sec{0};
 
 	void calculate_point() {
 	    while (!points.empty()) {
@@ -98,25 +95,18 @@ namespace alex{
 		    case SEARCH:
 			search_sec += std::chrono::duration_cast<nano>(last_point.end - last_point.start);
 			break;
-		    case EX_SEARCH:
-			ex_search_sec += std::chrono::duration_cast<nano>(last_point.end - last_point.start);
-			break;
-		    case BIN_SEARCH:
-			bin_search_sec += std::chrono::duration_cast<nano>(last_point.end - last_point.start);
-			break;
-
 		}
 		points.pop_back();
 	    }
 	}
-
-	void print_stat() {
-	    std::cout << "leaf_sec " << leaf_sec.count() << std::endl;
-	    std::cout << "fk_sec " << fk_sec.count() << std::endl;
-	    std::cout << "pred_sec " << pred_sec.count() << std::endl;
-	    std::cout << "search_sec " << search_sec.count() << std::endl;
-	    std::cout << "bin_search_sec " << bin_search_sec.count() << std::endl;
+/*
+	void get_yj_stat(nano leaf, nano fk, nano pred, nano search) {
+	    leaf = leaf_sec;
+	    fk = fk_sec;
+	    pred = pred_sec;
+	    search = search_sec;
 	}
+	*/
     };
 
     /*** Linear model and model builder ***/
