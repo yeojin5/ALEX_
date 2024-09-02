@@ -1506,6 +1506,14 @@ namespace alex {
 #if SEA == 6
 			     int pos = yj_mb_linSIMD_search(predicted_pos, key) - 1;
 #endif
+#if SEA == 7
+			     // ex + bbin
+			     int pos = exponential_search_upper_bound(predicted_pos, key) - 1;
+#endif
+#if SEA == 8
+			     // ex + linSIMD
+			     int pos = exponential_search_upper_bound(predicted_pos, key) - 1;
+#endif
 			     if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
 				 search.end = std::chrono::system_clock::now();
 				 bstat->points.push_back(search);
@@ -1629,7 +1637,15 @@ namespace alex {
 				     l = m + bound / 2;
 				     r = m + std::min<int>(bound, size);
 				 }
+#if SEA == 0
 				 return binary_search_upper_bound(l, r, key);
+#endif
+#if SEA == 7
+				 return yj_bbinary_search_upper_bound(l, r, key);
+#endif
+#if SEA == 8
+				 return yj_SIMD_lin_search_upper_bound(l, r, key);
+#endif
 			     }
 			// yj 
 			 template <class K>
@@ -1697,6 +1713,64 @@ namespace alex {
 				 }
 				 return data_capacity_;
 			     }
+			 // yj
+			template <class K>
+			     inline int yj_mb_bbin_search(int m, const K& key) {
+				 intptr_t MINUS_ONE = -1;
+				 intptr_t pos = MINUS_ONE;
+				 if(ALEX_DATA_NODE_KEY_AT(m)< key){
+					int n = data_cacity_ - m + 1;
+					intptr_t logstep = bsr(n);
+					intptr_t step = intptr_t(1) << logstep;
+					while(step > 0){
+						pos = (ALEX_DATA_NODE_KEY_AT(step) <= key ? pos+step : pos);
+						step >>= 1;
+					}
+					return pos + 1;
+				 }
+				 else {
+				 	int n = m + 1;
+					intptr_t logstep = bsr(n);
+					intptr_t step = intptr_t(1) << logstep;
+					while(step > 0){
+						pos(ALEX_DATA_NODE_KEY_AT(step) <= key ? pos + step : pos);
+						step >>= 1;
+					}
+					return pos + 1;
+				 }
+			     }
+
+			template <class K>
+				inline int yj_mb_linSIMD_search(int m, const K& key) {
+					const int step = 8;
+					__m512i values = _mm512_set1_epi32(key);
+					if(ALEX_DATA_NODE_KEY_AT(m) < key){
+						const K* data = &(ALEX_DATA_NODE_KEY_AT(m));
+						int size = data_capacity_ - m + 1;
+						for(int i = 0; i < size; i+=step){
+							__m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
+							__mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec,values);
+							if(cmp_mask != 0) {
+								int index = __builtin_ctz(cmp_mask);
+								return i + index;
+							}
+						}
+						return data_capacity_;
+					}
+					else{
+						const K* data = &(ALEX_DATA_NODE_KEY_AT(0));
+						int size = m + 1;
+						for(int i = size; i >= 0; i-=step){
+							__m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
+							__mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec,values);
+							if(cmp_mask != 0) {
+								int index = __builtin_ctz(cmp_mask);
+								return (i - step + 1) + index;
+							}
+						}
+						return 0;
+					}
+				}
 
 			 // Searches for the first position greater than key in range [l, r)
 			 // https://stackoverflow.com/questions/6443569/implementation-of-c-lower-bound
