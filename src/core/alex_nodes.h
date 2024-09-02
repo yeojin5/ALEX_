@@ -29,7 +29,7 @@
 #define ALEX_DATA_NODE_PAYLOAD_AT(i) data_slots_[i].second
 #endif
 
-#define SEA 0
+#define SEA 4
 
 
 // Whether we use lzcnt and tzcnt when manipulating a bitmap (e.g., when finding
@@ -1500,6 +1500,12 @@ namespace alex {
 #if SEA == 4
 			     int pos = yj_linSIMD_search(predicted_pos, key) - 1;
 #endif     
+#if SEA == 5
+			     int pos = yj_mb_bbin_search(predicted_pos, key) - 1;
+#endif
+#if SEA == 6
+			     int pos = yj_mb_linSIMD_search(predicted_pos, key) - 1;
+#endif
 			     if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
 				 search.end = std::chrono::system_clock::now();
 				 bstat->points.push_back(search);
@@ -1628,18 +1634,17 @@ namespace alex {
 			// yj 
 			 template <class K>
 			     inline int yj_bin_search(int m, const K& key) {
-				 int s = 0; // start of the range
-				 int e = data_capacity_; // end of the range
-				 while(s < e){
-				     int mid = e + (s - e) / 2;
-				     if (key_lesseual(ALEX_DATA_NODE_KEY_AT(mid), key)) {
-					 s = mid + 1;
-				     } 
-				     else {
-					 e = mid;
+				int l = 0; // start of the range
+				int r = data_capacity_; // end of the range
+				while (l < r) {
+				     int mid = l + (r - l) / 2;
+				     if (key_lessequal(ALEX_DATA_NODE_KEY_AT(mid), key)) {
+					 l = mid + 1;
+				     } else {
+					 r = mid;
 				     }
 				 }
-				 return s;
+				 return l;
 			     }
 			 
 			 inline intptr_t bsr(size_t x){
@@ -1707,6 +1712,37 @@ namespace alex {
 				     }
 				 }
 				 return l;
+			     }
+			template <class K>
+				inline int yj_bbinary_search_upper_bound(int l, int r, const K& key) const {
+					intptr_t MINUS_ONE = -1;
+					intptr_t pos = MINUS_ONE;
+					int n = r - l + 1;
+					intptr_t logstep = bsr(n);
+					intptr_t step = intptr_t(1) << logstep;
+					while(step > 0){
+						pos = (ALEX_DATA_NODE_KEY_AT(step) <= key ? pos+step:pos);
+						step >>=1;
+					}
+					return pos + 1;
+				}
+
+
+			template <class K>
+			     inline int yj_SIMD_lin_search_upper_bound(int l, int r, const K& key) const {
+				     const K* data = &(ALEX_DATA_NODE_KEY_AT(l));
+				     __m512i values = _mm512_set1_epi32(key);
+				     int size = r - l + 1;
+				     const int step = 8;
+				     for (int i=0; i < size; i+=step){
+					     __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(data[i]));
+					     __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);
+					     if(cmp_mask != 0){
+						     int index = __builtin_ctz(cmp_mask);
+						     return i+index;
+					     }
+				     }
+				     return size;
 			     }
 
 			 // Searches for the first position no less than key
