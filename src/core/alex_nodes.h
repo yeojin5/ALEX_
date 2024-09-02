@@ -1719,7 +1719,7 @@ namespace alex {
 				 intptr_t MINUS_ONE = -1;
 				 intptr_t pos = MINUS_ONE;
 				 if(ALEX_DATA_NODE_KEY_AT(m)< key){
-					int n = data_cacity_ - m + 1;
+					int n = data_capacity_ - m + 1;
 					intptr_t logstep = bsr(n);
 					intptr_t step = intptr_t(1) << logstep;
 					while(step > 0){
