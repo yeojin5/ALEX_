@@ -1014,7 +1014,7 @@ class Alex {
     stats_.num_lookups++;
     data_node_type* leaf = get_leaf(key);
     const int idx = leaf->upper_bound(key) - 1;
-    if (idx >= 0) {
+	if(idx >= 0) {
       return Iterator(leaf, idx);
     }
 

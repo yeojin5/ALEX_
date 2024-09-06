@@ -99,6 +99,7 @@ namespace alex{
 		points.pop_back();
 	    }
 	}
+
 /*
 	void get_yj_stat(nano leaf, nano fk, nano pred, nano search) {
 	    leaf = leaf_sec;

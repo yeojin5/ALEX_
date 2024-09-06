@@ -29,7 +29,7 @@
 #define ALEX_DATA_NODE_PAYLOAD_AT(i) data_slots_[i].second
 #endif
 
-#define SEA 8
+#define SEA 7
 
 
 // Whether we use lzcnt and tzcnt when manipulating a bitmap (e.g., when finding
@@ -1508,11 +1508,11 @@ namespace alex {
 #endif
 #if SEA == 7
 			     // ex + bbin
-			     int pos = exponential_search_upper_bound(predicted_pos, key) - 1;
+			     int pos = exponential_bbin_search_upper_bound(predicted_pos, key) - 1;
 #endif
 #if SEA == 8
 			     // ex + linSIMD
-			     int pos = exponential_search_upper_bound(predicted_pos, key) - 1;
+			     int pos = exponential_simd_search_upper_bound(predicted_pos, key) - 1;
 #endif
 			     if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
 				 search.end = std::chrono::system_clock::now();
@@ -1637,13 +1637,61 @@ namespace alex {
 				     l = m + bound / 2;
 				     r = m + std::min<int>(bound, size);
 				 }
-#if SEA == 7
-				 return yj_bbinary_search_upper_bound(l, r, key);
-#elif SEA == 8
-				 return yj_SIMD_lin_search_upper_bound(l, r, key);
-#else
 				 return binary_search_upper_bound(l, r, key);
-#endif
+			     }
+			 template <class K>
+			     inline int exponential_simd_search_upper_bound(int m, const K& key) {
+				 // Continue doubling the bound until it contains the upper bound. Then use
+				 // binary search.
+				 int bound = 1;
+				 int l, r;  // will do binary search in range [l, r)
+				 if (key_greater(ALEX_DATA_NODE_KEY_AT(m), key)) {
+				     int size = m;
+				     while (bound < size &&
+					     key_greater(ALEX_DATA_NODE_KEY_AT(m - bound), key)) {
+					 bound *= 2;
+					 num_exp_search_iterations_++;
+				     }
+				     l = m - std::min<int>(bound, size);
+				     r = m - bound / 2;
+				 } else {
+				     int size = data_capacity_ - m;
+				     while (bound < size &&
+					     key_lessequal(ALEX_DATA_NODE_KEY_AT(m + bound), key)) {
+					 bound *= 2;
+					 num_exp_search_iterations_++;
+				     }
+				     l = m + bound / 2;
+				     r = m + std::min<int>(bound, size);
+				 }
+				 return yj_SIMD_lin_search_upper_bound(l, r, key);
+			     }
+			 template <class K>
+			     inline int exponential_bbin_search_upper_bound(int m, const K& key) {
+				 // Continue doubling the bound until it contains the upper bound. Then use
+				 // binary search.
+				 int bound = 1;
+				 int l, r;  // will do binary search in range [l, r)
+				 if (key_greater(ALEX_DATA_NODE_KEY_AT(m), key)) {
+				     int size = m;
+				     while (bound < size &&
+					     key_greater(ALEX_DATA_NODE_KEY_AT(m - bound), key)) {
+					 bound *= 2;
+					 num_exp_search_iterations_++;
+				     }
+				     l = m - std::min<int>(bound, size);
+				     r = m - bound / 2;
+				 } else {
+				     int size = data_capacity_ - m;
+				     while (bound < size &&
+					     key_lessequal(ALEX_DATA_NODE_KEY_AT(m + bound), key)) {
+					 bound *= 2;
+					 num_exp_search_iterations_++;
+				     }
+				     l = m + bound / 2;
+				     r = m + std::min<int>(bound, size);
+				 }
+				 return yj_bbinary_search_upper_bound(l, r, key);
 			     }
 			// yj 
 			 template <class K>
@@ -1673,25 +1721,28 @@ namespace alex {
 			// yj 
 			// this is branchless binary search
 			 template <class K>
-			     inline int yj_bbin_search(int m, const K& key) {
-				 intptr_t MINUS_ONE = -1;
-				 int n = data_capacity_;
-				 intptr_t pos = MINUS_ONE;
-				 intptr_t logstep = bsr(n);
-				 intptr_t step = intptr_t(1) << logstep;
-				 while(step > 0){
-				     pos = (ALEX_DATA_NODE_KEY_AT(step) <= key ? pos+step:pos);
-				     step >>= 1;
-				 }
-				 return pos + 1;
-			     }		
+				inline int yj_bbin_search(int m, const K& key) {
+					 intptr_t MINUS_ONE = -1;
+					 int n = data_capacity_;
+					 intptr_t pos = MINUS_ONE;
+					 intptr_t logstep = bsr(n);
+					 intptr_t step = intptr_t(1) << logstep;
+					 while(step > 0){
+						 intptr_t current_index = pos + step;
+						 intptr_t within_bounds_mask = (current_index < n) ? -1:0;
+						 pos = (within_bounds_mask & ALEX_DATA_NODE_KEY_AT(current_index) <= key) ? current_index:pos;
+						 step >>= 1;
+					 }
+					 return (pos+1<n)?pos+1:n;
+				 }		
 
 			 // yj 
 			 template <class K>
 			     inline int yj_lin_search(int m, const K& key) {
 				 int runner = 0;
-				 for (; runner != data_capacity_; ++runner)
-				     if (key_greaterequal(ALEX_DATA_NODE_KEY_AT(runner),key)) return runner;
+				 for (; runner != data_capacity_; ++runner){
+				     if (key_equal(ALEX_DATA_NODE_KEY_AT(runner),key)) return runner;
+				 }
 				 return data_capacity_;
 			     }		
 			 // yj 
@@ -1741,11 +1792,12 @@ namespace alex {
 			template <class K>
 				inline int yj_mb_linSIMD_search(int m, const K& key) {
 					const int step = 8;
-					__m512i values = _mm512_set1_epi32(key);
+					__m512i values = _mm512_set1_epi64(key);
 					if(ALEX_DATA_NODE_KEY_AT(m) < key){
 						const K* data = &(ALEX_DATA_NODE_KEY_AT(m));
-						int size = data_capacity_ - m + 1;
+						int size = data_capacity_ - m;
 						for(int i = 0; i < size; i+=step){
+							int remaining = std::min(step, size - i);
 							__m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
 							__mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec,values);
 							if(cmp_mask != 0) {
@@ -1758,12 +1810,13 @@ namespace alex {
 					else{
 						const K* data = &(ALEX_DATA_NODE_KEY_AT(0));
 						int size = m + 1;
-						for(int i = size; i >= 0; i-=step){
+						for(int i = size-step; i >= 0; i-=step){
+							int remaining = std::min(step, i+1);
 							__m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
 							__mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec,values);
 							if(cmp_mask != 0) {
 								int index = __builtin_ctz(cmp_mask);
-								return (i - step + 1) + index;
+								return i + index;
 							}
 						}
 						return 0;
@@ -1803,17 +1856,20 @@ namespace alex {
 			template <class K>
 			     inline int yj_SIMD_lin_search_upper_bound(int l, int r, const K& key) {
 				     const K* data = &(ALEX_DATA_NODE_KEY_AT(l));
-				     __m512i values = _mm512_set1_epi32(key);
+				     __m512i values = _mm512_set1_epi64(key);
 				     int size = r - l + 1;
 				     const int step = 8;
-				     for (int i=0; i < size; i+=step){
+				     for (int i=0; i < size-step; i+=step){
 					     __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
 					     __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);
 					     if(cmp_mask != 0){
 						     int index = __builtin_ctz(cmp_mask);
-						     return i+index;
+						     return l+i+index;
 					     }
 				     }
+				     for (int i = size - size%step; i< size; ++i)
+				     	if(key_greaterequal(data[i], key)) return l+i;
+				     
 				     return l;
 			     }
 
