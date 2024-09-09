@@ -17,6 +17,7 @@
 #include <cstdint>
 //#include "alex_fanout_tree.h" // yj
 
+
 // Whether we store key and payload arrays separately in data nodes
 // By default, we store them separately
 #define ALEX_DATA_NODE_SEP_ARRAYS 1
@@ -29,7 +30,7 @@
 #define ALEX_DATA_NODE_PAYLOAD_AT(i) data_slots_[i].second
 #endif
 
-#define SEA 7
+#define SEA 4
 
 
 // Whether we use lzcnt and tzcnt when manipulating a bitmap (e.g., when finding
