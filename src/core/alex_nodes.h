@@ -1,3 +1,100 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+/*
+ * This file contains code for ALEX nodes. There are two types of nodes in ALEX:
+ * - Model nodes (equivalent to internal/inner nodes of a B+ Tree)
+ * - Data nodes, sometimes referred to as leaf nodes (equivalent to leaf nodes
+ * of a B+ Tree)
+ */
+
+#pragma once
+
+//#include "alex.h" // yj
+#include "alex_base.h"
+#include <immintrin.h>
+#include <avx512fintrin.h>
+#include <cstdint>
+//#include "alex_fanout_tree.h" // yj
+
+
+// Whether we store key and payload arrays separately in data nodes
+// By default, we store them separately
+#define ALEX_DATA_NODE_SEP_ARRAYS 1
+
+#if ALEX_DATA_NODE_SEP_ARRAYS
+#define ALEX_DATA_NODE_KEY_AT(i) key_slots_[i]
+#define ALEX_DATA_NODE_PAYLOAD_AT(i) payload_slots_[i]
+#else
+#define ALEX_DATA_NODE_KEY_AT(i) data_slots_[i].first
+#define ALEX_DATA_NODE_PAYLOAD_AT(i) data_slots_[i].second
+#endif
+
+#define SEA 4
+
+
+// Whether we use lzcnt and tzcnt when manipulating a bitmap (e.g., when finding
+// the closest gap).
+// If your hardware does not support lzcnt/tzcnt (e.g., your Intel CPU is
+// pre-Haswell), set this to 0.
+#define ALEX_USE_LZCNT 1
+
+namespace alex {
+
+    // A parent class for both types of ALEX nodes
+    template <class T, class P>
+	class AlexNode {
+	    public:
+
+		// Whether this node is a leaf (data) node
+		bool is_leaf_ = false;
+
+		// Power of 2 to which the pointer to this node is duplicated in its parent
+		// model node
+		// For example, if duplication_factor_ is 3, then there are 8 redundant
+		// pointers to this node in its parent
+		uint8_t duplication_factor_ = 0;
+
+		// Node's level in the RMI. Root node is level 0
+		short level_ = 0;
+
+		// Both model nodes and data nodes nodes use models
+		LinearModel<T> model_;
+
+		// Could be either the expected or empirical cost, depending on how this field
+		// is used
+		double cost_ = 0.0;
+
+		AlexNode() = default;
+		explicit AlexNode(short level) : level_(level) {}
+		AlexNode(short level, bool is_leaf) : is_leaf_(is_leaf) {}
+		virtual ~AlexNode() = default;
+
+		// The size in bytes of all member variables in this class
+		virtual long long node_size() const = 0;
+	};
+
+    template <class T, class P, class Alloc = std::allocator<std::pair<T, P>>>
+	class AlexModelNode : public AlexNode<T, P> {
+	    public:
+		typedef AlexModelNode<T, P, Alloc> self_type;
+		typedef typename Alloc::template rebind<self_type>::other alloc_type;
+		typedef typename Alloc::template rebind<AlexNode<T, P>*>::other
+		    pointer_alloc_type;
+
+		const Alloc& allocator_;
+
+		// Number of logical children. Must be a power of 2
+		int num_children_ = 0;
+
+		// Array of pointers to children
+		AlexNode<T, P>** children_ = nullptr;
+
+		explicit AlexModelNode(const Alloc& alloc = Alloc())
+		    : AlexNode<T, P>(0, false), allocator_(alloc) {}
+
+		explicit AlexModelNode(short level, const Alloc& alloc = Alloc())
+		    : AlexNode<T, P>(level, false), allocator_(alloc) {}
 
 		~AlexModelNode() {
 		    if (children_ == nullptr) {
