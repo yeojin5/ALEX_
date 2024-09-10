@@ -1,100 +1,3 @@
-// Copyright (c) Microsoft Corporation.
-// Licensed under the MIT license.
-
-/*
- * This file contains code for ALEX nodes. There are two types of nodes in ALEX:
- * - Model nodes (equivalent to internal/inner nodes of a B+ Tree)
- * - Data nodes, sometimes referred to as leaf nodes (equivalent to leaf nodes
- * of a B+ Tree)
- */
-
-#pragma once
-
-//#include "alex.h" // yj
-#include "alex_base.h"
-#include <immintrin.h>
-#include <avx512fintrin.h>
-#include <cstdint>
-//#include "alex_fanout_tree.h" // yj
-
-
-// Whether we store key and payload arrays separately in data nodes
-// By default, we store them separately
-#define ALEX_DATA_NODE_SEP_ARRAYS 1
-
-#if ALEX_DATA_NODE_SEP_ARRAYS
-#define ALEX_DATA_NODE_KEY_AT(i) key_slots_[i]
-#define ALEX_DATA_NODE_PAYLOAD_AT(i) payload_slots_[i]
-#else
-#define ALEX_DATA_NODE_KEY_AT(i) data_slots_[i].first
-#define ALEX_DATA_NODE_PAYLOAD_AT(i) data_slots_[i].second
-#endif
-
-#define SEA 4
-
-
-// Whether we use lzcnt and tzcnt when manipulating a bitmap (e.g., when finding
-// the closest gap).
-// If your hardware does not support lzcnt/tzcnt (e.g., your Intel CPU is
-// pre-Haswell), set this to 0.
-#define ALEX_USE_LZCNT 1
-
-namespace alex {
-
-    // A parent class for both types of ALEX nodes
-    template <class T, class P>
-	class AlexNode {
-	    public:
-
-		// Whether this node is a leaf (data) node
-		bool is_leaf_ = false;
-
-		// Power of 2 to which the pointer to this node is duplicated in its parent
-		// model node
-		// For example, if duplication_factor_ is 3, then there are 8 redundant
-		// pointers to this node in its parent
-		uint8_t duplication_factor_ = 0;
-
-		// Node's level in the RMI. Root node is level 0
-		short level_ = 0;
-
-		// Both model nodes and data nodes nodes use models
-		LinearModel<T> model_;
-
-		// Could be either the expected or empirical cost, depending on how this field
-		// is used
-		double cost_ = 0.0;
-
-		AlexNode() = default;
-		explicit AlexNode(short level) : level_(level) {}
-		AlexNode(short level, bool is_leaf) : is_leaf_(is_leaf) {}
-		virtual ~AlexNode() = default;
-
-		// The size in bytes of all member variables in this class
-		virtual long long node_size() const = 0;
-	};
-
-    template <class T, class P, class Alloc = std::allocator<std::pair<T, P>>>
-	class AlexModelNode : public AlexNode<T, P> {
-	    public:
-		typedef AlexModelNode<T, P, Alloc> self_type;
-		typedef typename Alloc::template rebind<self_type>::other alloc_type;
-		typedef typename Alloc::template rebind<AlexNode<T, P>*>::other
-		    pointer_alloc_type;
-
-		const Alloc& allocator_;
-
-		// Number of logical children. Must be a power of 2
-		int num_children_ = 0;
-
-		// Array of pointers to children
-		AlexNode<T, P>** children_ = nullptr;
-
-		explicit AlexModelNode(const Alloc& alloc = Alloc())
-		    : AlexNode<T, P>(0, false), allocator_(alloc) {}
-
-		explicit AlexModelNode(short level, const Alloc& alloc = Alloc())
-		    : AlexNode<T, P>(level, false), allocator_(alloc) {}
 
 		~AlexModelNode() {
 		    if (children_ == nullptr) {
@@ -1467,64 +1370,64 @@ namespace alex {
 			     return position;
 			 }
 
-			 // yj
 			 // Searches for the last non-gap position equal to key
 			 // If no positions equal to key, returns -1
 			 int find_key(const T& key, Bstat* bstat) {
-			     num_lookups_++;
-			     //alex_ptr->ben_stat.pre_sp =  std::chrono::steady_clock::now();
-			     auto pred = Point();
-			     pred.OP = operation::PREDICT;
-			     pred.start = std::chrono::system_clock::now();
-			     int predicted_pos = predict_position(key);
-			     pred.end = std::chrono::system_clock::now();
-			     bstat->points.push_back(pred);
+				 num_lookups_++;
+				 auto pred = Point();
+				 pred.OP = operation::PREDICT;
+				 pred.start = std::chrono::system_clock::now();
+				 int predicted_pos = predict_position(key);
+				 pred.end = std::chrono::system_clock::now();
+				 bstat->points.push_back(pred);
 
-			     //alex_ptr->ben_stat.pre_ep = std::chrono::steady_clock::now();
-			     // The last key slot with a certain value is guaranteed to be a real key
-			     // (instead of a gap)
-			     auto search = Point();
-			     search.OP = operation::SEARCH;
-			     search.start = std::chrono::system_clock::now();
-#if SEA == 0
-			     int pos = exponential_search_upper_bound(predicted_pos, key) - 1;
-#endif
-#if SEA == 1
-			     int pos = yj_bin_search(predicted_pos, key) - 1;
-#endif		
-#if SEA == 2
-			     int pos = yj_bbin_search(predicted_pos, key) - 1;
-#endif
-#if SEA == 3
-			     int pos = yj_lin_search(predicted_pos, key) - 1;
-#endif
-#if SEA == 4
-			     int pos = yj_linSIMD_search(predicted_pos, key) - 1;
-#endif     
-#if SEA == 5
-			     int pos = yj_mb_bbin_search(predicted_pos, key) - 1;
-#endif
-#if SEA == 6
-			     int pos = yj_mb_linSIMD_search(predicted_pos, key) - 1;
-#endif
-#if SEA == 7
-			     // ex + bbin
-			     int pos = exponential_bbin_search_upper_bound(predicted_pos, key) - 1;
-#endif
-#if SEA == 8
-			     // ex + linSIMD
-			     int pos = exponential_simd_search_upper_bound(predicted_pos, key) - 1;
-#endif
-			     if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
+				 // The last key slot with a certain value is guaranteed to be a real key
+				 // (instead of a gap)
+				 auto search = Point();
+				 search.OP = operation::SEARCH;
+				 search.start = std::chrono::system_clock::now();
+// perf
+				 int fd_llc_miss = setup_perf_event(0);
+				 int fd_dtlb_miss = setup_perf_event(1);
+				 int fd_branch_miss = setup_perf_event(2);
+				 int fd_instructions = setup_perf_event(3);
+
+				 enable_perf_event(fd_llc_miss);
+				 enable_perf_event(fd_dtlb_miss);
+				 enable_perf_event(fd_branch_miss);
+				 enable_perf_event(fd_instructions);
+				 int pos;
+				 if(bstat->search_type == "exponential") pos = exponential_search_upper_bound(predicted_pos, key) - 1;
+				 else if(bstat->search_type == "bin") pos = yj_bin_search(predicted_pos, key) - 1;
+				 else if(bstat->search_type == "bbin") pos = yj_bbin_search(predicted_pos, key) - 1;
+				 else if(bstat->search_type == "mb_bbin") pos = yj_mb_bbin_search(predicted_pos, key) - 1;
+				 else if(bstat->search_type == "ex_mb_bbin") pos = exponential_bbin_search_upper_bound(predicted_pos, key) - 1;
+				 else if(bstat->search_type == "lin") pos = yj_lin_search(predicted_pos, key) - 1;
+				 else if(bstat->search_type == "slin") pos = yj_linSIMD_search(predicted_pos, key) - 1;
+				 else if(bstat->search_type == "mb_slin") pos = yj_mb_linSIMD_search(predicted_pos, key) - 1;
+				 else if(bstat->search_type == "ex_mb_slin") pos = exponential_simd_search_upper_bound(predicted_pos, key) - 1;
+				 disable_perf_event(fd_llc_miss);
+				 disable_perf_event(fd_dtlb_miss);
+				 disable_perf_event(fd_branch_miss);
+				 disable_perf_event(fd_instructions);
+
+				 bstat->llc_miss_count += close_perf_event(fd_llc_miss);
+				 bstat->dtlb_miss_count += close_perf_event(fd_dtlb_miss);
+				 bstat->branch_miss_count += close_perf_event(fd_branch_miss);
+				 bstat->instructions_count += close_perf_event(fd_instructions);
+				 std::cout << "LLC Cache Misses: " << bstat->llc_miss_count << std::endl;
+				 std::cout << "DTLB Misses: " << bstat->dtlb_miss_count << std::endl;
+				 std::cout << "Branch Misses: " << bstat->branch_miss_count << std::endl;
+				 std::cout << "Instructions: " << bstat->instructions_count << std::endl;
+
 				 search.end = std::chrono::system_clock::now();
 				 bstat->points.push_back(search);
-				 return -1;
-			     } else {
-				 search.end = std::chrono::system_clock::now();
-				 bstat->points.push_back(search);
-				 return pos;
-			     }
 
+				 if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
+					 return -1;
+				 } else {
+					 return pos;
+				 }
 			 }
 
 			 // Searches for the first non-gap position no less than key
@@ -1641,33 +1544,6 @@ namespace alex {
 				 return binary_search_upper_bound(l, r, key);
 			     }
 			 template <class K>
-			     inline int exponential_simd_search_upper_bound(int m, const K& key) {
-				 // Continue doubling the bound until it contains the upper bound. Then use
-				 // binary search.
-				 int bound = 1;
-				 int l, r;  // will do binary search in range [l, r)
-				 if (key_greater(ALEX_DATA_NODE_KEY_AT(m), key)) {
-				     int size = m;
-				     while (bound < size &&
-					     key_greater(ALEX_DATA_NODE_KEY_AT(m - bound), key)) {
-					 bound *= 2;
-					 num_exp_search_iterations_++;
-				     }
-				     l = m - std::min<int>(bound, size);
-				     r = m - bound / 2;
-				 } else {
-				     int size = data_capacity_ - m;
-				     while (bound < size &&
-					     key_lessequal(ALEX_DATA_NODE_KEY_AT(m + bound), key)) {
-					 bound *= 2;
-					 num_exp_search_iterations_++;
-				     }
-				     l = m + bound / 2;
-				     r = m + std::min<int>(bound, size);
-				 }
-				 return yj_SIMD_lin_search_upper_bound(l, r, key);
-			     }
-			 template <class K>
 			     inline int exponential_bbin_search_upper_bound(int m, const K& key) {
 				 // Continue doubling the bound until it contains the upper bound. Then use
 				 // binary search.
@@ -1692,24 +1568,35 @@ namespace alex {
 				     l = m + bound / 2;
 				     r = m + std::min<int>(bound, size);
 				 }
-				 return yj_bbinary_search_upper_bound(l, r, key);
+				 return yj_bbinary_search_upper_bound(l, r, m, key);
 			     }
-			// yj 
 			 template <class K>
-			     inline int yj_bin_search(int m, const K& key) {
-				int l = 0; // start of the range
-				int r = data_capacity_; // end of the range
-				while (l < r) {
-				     int mid = l + (r - l) / 2;
-				     if (key_lessequal(ALEX_DATA_NODE_KEY_AT(mid), key)) {
-					 l = mid + 1;
-				     } else {
-					 r = mid;
+			     inline int exponential_simd_search_upper_bound(int m, const K& key) {
+				 // Continue doubling the bound until it contains the upper bound. Then use
+				 // binary search.
+				 int bound = 1;
+				 int l, r;  // will do binary search in range [l, r)
+				 if (key_greater(ALEX_DATA_NODE_KEY_AT(m), key)) {
+				     int size = m;
+				     while (bound < size &&
+					     key_greater(ALEX_DATA_NODE_KEY_AT(m - bound), key)) {
+					 bound *= 2;
+					 num_exp_search_iterations_++;
 				     }
+				     l = m - std::min<int>(bound, size);
+				     r = m - bound / 2;
+				 } else {
+				     int size = data_capacity_ - m;
+				     while (bound < size &&
+					     key_lessequal(ALEX_DATA_NODE_KEY_AT(m + bound), key)) {
+					 bound *= 2;
+					 num_exp_search_iterations_++;
+				     }
+				     l = m + bound / 2;
+				     r = m + std::min<int>(bound, size);
 				 }
-				 return l;
+				 return yj_SIMD_lin_search_upper_bound(l, r, m, key);
 			     }
-			 
 			 inline intptr_t bsr(size_t x){
 			     intptr_t ret = -1;
 			     while(x){
@@ -1718,51 +1605,6 @@ namespace alex {
 			     }
 			     return ret;
 			 }
-
-			// yj 
-			// this is branchless binary search
-			 template <class K>
-				inline int yj_bbin_search(int m, const K& key) {
-					 intptr_t MINUS_ONE = -1;
-					 int n = data_capacity_;
-					 intptr_t pos = MINUS_ONE;
-					 intptr_t logstep = bsr(n);
-					 intptr_t step = intptr_t(1) << logstep;
-					 while(step > 0){
-						 intptr_t current_index = pos + step;
-						 intptr_t within_bounds_mask = (current_index < n) ? -1:0;
-						 pos = (within_bounds_mask & ALEX_DATA_NODE_KEY_AT(current_index) <= key) ? current_index:pos;
-						 step >>= 1;
-					 }
-					 return (pos+1<n)?pos+1:n;
-				 }		
-
-			 // yj 
-			 template <class K>
-			     inline int yj_lin_search(int m, const K& key) {
-				 int runner = 0;
-				 for (; runner != data_capacity_; ++runner){
-				     if (key_equal(ALEX_DATA_NODE_KEY_AT(runner),key)) return runner;
-				 }
-				 return data_capacity_;
-			     }		
-			 // yj 
-			 template <class K>
-			     inline int yj_linSIMD_search(int m, const K& key) {
-				 const K* data = &(ALEX_DATA_NODE_KEY_AT(0));
-				 __m512i values = _mm512_set1_epi32(key);
-				 int size = data_capacity_;
-				 const int step = 8;
-				 for(int i =0; i < data_capacity_; i+=step){
-				     __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
-				     __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec,values);
-				     if(cmp_mask != 0) {
-					 int index = __builtin_ctz(cmp_mask);
-					 return i+index;
-				     }
-				 }
-				 return data_capacity_;
-			     }
 			 // yj
 			template <class K>
 			     inline int yj_mb_bbin_search(int m, const K& key) {
@@ -1823,7 +1665,57 @@ namespace alex {
 						return 0;
 					}
 				}
-
+			template <class K>
+				inline int yj_bin_search(int m, const K& key) {
+					int l = 0; // start of the range
+					int r = data_capacity_; // end of the range
+					while (l < r) {
+						int mid = l + (r - l) / 2;
+						if (key_lessequal(ALEX_DATA_NODE_KEY_AT(mid), key)) {
+							l = mid + 1;
+						} else {
+							r = mid;
+						}
+					}
+					return l;
+				}
+			template <class K>
+				inline int yj_bbin_search(int m, const K& key) {
+					intptr_t MINUS_ONE = -1;
+					int n = data_capacity_;
+					intptr_t pos = MINUS_ONE;
+					intptr_t logstep = bsr(n);
+					intptr_t step = intptr_t(1) << logstep;
+					while(step > 0){
+						pos = (ALEX_DATA_NODE_KEY_AT(step) <= key ? pos+step:pos);
+						step >>= 1;
+					}
+					return pos + 1;
+				}	
+			template <class K>
+				inline int yj_lin_search(int m, const K& key) {
+					int runner = 0;
+					for (; runner != data_capacity_; ++runner){
+						if (key_equal(ALEX_DATA_NODE_KEY_AT(runner),key)) return runner;
+					}
+					return data_capacity_;
+				}
+			template <class K>
+				inline int yj_linSIMD_search(int m, const K& key) {
+					const K* data = &(ALEX_DATA_NODE_KEY_AT(0));
+					__m512i values = _mm512_set1_epi32(key);
+					int size = data_capacity_;
+					const int step = 8;
+					for(int i =0; i < data_capacity_; i+=step){
+						__m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
+						__mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec,values);
+						if(cmp_mask != 0) {
+							int index = __builtin_ctz(cmp_mask);
+							return i+index;
+						}
+					}
+					return data_capacity_;
+				}
 			 // Searches for the first position greater than key in range [l, r)
 			 // https://stackoverflow.com/questions/6443569/implementation-of-c-lower-bound
 			 // Returns position in range [l, r]
@@ -1839,40 +1731,79 @@ namespace alex {
 				 }
 				 return l;
 			     }
+			 template <class K>
+				 inline int yj_bbinary_search_upper_bound(int l, int r, int m, const K& key) {
+					 intptr_t MINUS_ONE = -1;
+					 intptr_t pos = MINUS_ONE;
+					 int n = r - l + 1;
+					 intptr_t logstep = bsr(n);
+					 intptr_t step = intptr_t(1) << logstep;
+					 if (ALEX_DATA_NODE_KEY_AT(m) == key){return m;}
+					 // key가 m보다 크면 오른쪽 범위에서 탐색
+					 if (ALEX_DATA_NODE_KEY_AT(m) < key) {
+						 while (step > 0) {
+							 intptr_t mid = m + step; // 오른쪽으로 이동
+							 if (mid <= r && ALEX_DATA_NODE_KEY_AT(mid) <= key) {
+								 pos = mid; // 상한선을 mid로 업데이트
+							 }
+							 step >>= 1;
+						 }
+					 } 
+					 // key가 m보다 작으면 왼쪽 범위에서 탐색
+					 else {
+						 while (step > 0) {
+							 intptr_t mid = m - step; // 왼쪽으로 이동
+							 if (mid >= l && ALEX_DATA_NODE_KEY_AT(mid) <= key) {
+								 pos = mid; // 상한선을 mid로 업데이트
+							 }
+							 step >>= 1;
+						 }
+					 }
+
+					 return pos + 1;
+				 }
+
+
 			template <class K>
-				inline int yj_bbinary_search_upper_bound(int l, int r, const K& key) {
-					intptr_t MINUS_ONE = -1;
-					intptr_t pos = MINUS_ONE;
-					int n = r - l + 1;
-					intptr_t logstep = bsr(n);
-					intptr_t step = intptr_t(1) << logstep;
-					while(step > 0){
-						pos = (ALEX_DATA_NODE_KEY_AT(step) <= key ? pos+step:pos);
-						step >>=1;
-					}
-					return pos + 1;
+				inline int yj_SIMD_lin_search_upper_bound(int l, int r, int m, const K& key) {
+					const int step = 8;
+					__m512i values = _mm512_set1_epi64(key);
+					if (ALEX_DATA_NODE_KEY_AT(m)==key){return m;}
+					// key가 m보다 크면 오른쪽 방향으로 탐색
+					if (ALEX_DATA_NODE_KEY_AT(m) < key) {
+						const K* data = &(ALEX_DATA_NODE_KEY_AT(m + 1));
+						int size = r - m;
+
+						for (int i = 0; i < size; i += step) {
+							int remaining = std::min(step, size - i);
+							__m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
+							__mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);
+
+							if (cmp_mask != 0) {
+								int index = __builtin_ctz(cmp_mask);
+								return m + 1 + i + index;  // m + 1 이후로 탐색
+							}
+						}
+						return r + 1;  // 범위 안에 없으면 r + 1 반환
+					} 
+					// key가 m보다 작으면 왼쪽 방향으로 탐색
+					else {
+						const K* data = &(ALEX_DATA_NODE_KEY_AT(l));
+						int size = m - l + 1;
+
+						for (int i = size - step; i >= 0; i -= step) {
+							int remaining = std::min(step, i + 1);
+							__m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
+							__mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);
+
+							if (cmp_mask != 0) {
+								int index = __builtin_ctz(cmp_mask);
+								return l + i + index;  // l부터 m까지 탐색
+							}
+						}
+						return l;  // 범위 안에 없으면 l 반환
+					}				
 				}
-
-
-			template <class K>
-			     inline int yj_SIMD_lin_search_upper_bound(int l, int r, const K& key) {
-				     const K* data = &(ALEX_DATA_NODE_KEY_AT(l));
-				     __m512i values = _mm512_set1_epi64(key);
-				     int size = r - l + 1;
-				     const int step = 8;
-				     for (int i=0; i < size-step; i+=step){
-					     __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
-					     __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);
-					     if(cmp_mask != 0){
-						     int index = __builtin_ctz(cmp_mask);
-						     return l+i+index;
-					     }
-				     }
-				     for (int i = size - size%step; i< size; ++i)
-				     	if(key_greaterequal(data[i], key)) return l+i;
-				     
-				     return l;
-			     }
 
 			 // Searches for the first position no less than key
 			 // This could be the position for a gap (i.e., its bit in the bitmap is 0)

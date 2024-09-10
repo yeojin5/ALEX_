@@ -72,12 +72,17 @@ namespace alex{
 	public:
 	std::chrono::time_point<std::chrono::system_clock> total_start, total_end;
 	std::vector<Point> points;
+	std::string search_type;
 	typedef std::chrono::nanoseconds nano;
 
 	nano leaf_sec{0};
 	nano fk_sec{0};
 	nano pred_sec{0};
 	nano search_sec{0};
+long long llc_miss_count;
+long long dtlb_miss_count;
+long long branch_miss_count;
+long long instructions_count;
 
 	void calculate_point() {
 	    while (!points.empty()) {

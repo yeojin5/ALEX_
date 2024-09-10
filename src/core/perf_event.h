@@ -1,94 +1,99 @@
-#ifndef PERF_EVENT_H
-#define PERF_EVENT_H
+/*
+Copyright (c) 2018 Viktor Leis
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 
+#pragma once
+#include <asm/unistd.h>
+#include <linux/hw_breakpoint.h>
 #include <linux/perf_event.h>
 #include <sys/ioctl.h>
-#include <unistd.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <fcntl.h>
 #include <sys/syscall.h>
+#include <unistd.h>
 
-// perf_event_open 함수 정의
-static long perf_event_open(struct perf_event_attr *hw_event, pid_t pid,
-                            int cpu, int group_fd, unsigned long flags)
-{
-    return syscall(__NR_perf_event_open, hw_event, pid, cpu, group_fd, flags);
+#include <cerrno>
+#include <chrono>
+#include <cstring>
+#include <iomanip>
+#include <iostream>
+#include <map>
+#include <string>
+#include <vector>
+
+void enable_perf_event(int fd) {
+  if (ioctl(fd, PERF_EVENT_IOC_ENABLE, 0) == -1) {
+    std::cerr << "Error enabling perf event: " << strerror(errno)
+              << std::endl;
+  }
 }
 
-// 성능 이벤트 파일 디스크립터 구조체
-typedef struct {
-    int fd_cycles;
-    int fd_instructions;
-} perf_fds;
-
-// 성능 이벤트 초기화 함수
-perf_fds init_perf_events() {
-    struct perf_event_attr pe_cycles, pe_instructions;
-    perf_fds fds;
-
-    // 1. CPU 사이클 이벤트 설정
-    memset(&pe_cycles, 0, sizeof(struct perf_event_attr));
-    pe_cycles.type = PERF_TYPE_HARDWARE;
-    pe_cycles.size = sizeof(struct perf_event_attr);
-    pe_cycles.config = PERF_COUNT_HW_CPU_CYCLES;
-    pe_cycles.disabled = 1;  // 시작 시 비활성화
-    pe_cycles.exclude_kernel = 1;  // 커널 모드 제외
-    pe_cycles.exclude_hv = 1;      // 하이퍼바이저 모드 제외
-
-    // 2. CPU 사이클 이벤트로 그룹의 리더 설정
-    fds.fd_cycles = perf_event_open(&pe_cycles, 0, -1, -1, 0);
-    if (fds.fd_cycles == -1) {
-        fprintf(stderr, "Error opening CPU cycles event\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // 3. 명령어 실행 이벤트 설정
-    memset(&pe_instructions, 0, sizeof(struct perf_event_attr));
-    pe_instructions.type = PERF_TYPE_HARDWARE;
-    pe_instructions.size = sizeof(struct perf_event_attr);
-    pe_instructions.config = PERF_COUNT_HW_INSTRUCTIONS;
-    pe_instructions.disabled = 1;  // 시작 시 비활성화
-    pe_instructions.exclude_kernel = 1;  // 커널 모드 제외
-    pe_instructions.exclude_hv = 1;      // 하이퍼바이저 모드 제외
-
-    // 4. 명령어 실행 이벤트를 사이클 이벤트 그룹에 추가
-    fds.fd_instructions = perf_event_open(&pe_instructions, 0, -1, fds.fd_cycles, 0);
-    if (fds.fd_instructions == -1) {
-        fprintf(stderr, "Error opening Instructions event\n");
-        exit(EXIT_FAILURE);
-    }
-
-    return fds;
+void disable_perf_event(int fd) {
+  if (ioctl(fd, PERF_EVENT_IOC_DISABLE, 0) == -1) {
+    std::cerr << "Error disabling perf event: " << strerror(errno)
+              << std::endl;
+  }
 }
 
-// 성능 카운터 시작
-void start_perf_events(perf_fds *fds) {
-    ioctl(fds->fd_cycles, PERF_EVENT_IOC_RESET, 0);
-    ioctl(fds->fd_instructions, PERF_EVENT_IOC_RESET, 0);
-    ioctl(fds->fd_cycles, PERF_EVENT_IOC_ENABLE, 0);  // 리더 이벤트 활성화
+int perf_event_open(struct perf_event_attr* hw_event, pid_t pid, int cpu,
+                    int group_fd, unsigned long flags) {
+  return syscall(__NR_perf_event_open, hw_event, pid, cpu, group_fd, flags);
 }
 
-// 성능 카운터 종료 및 결과 읽기
-void stop_and_read_perf_events(perf_fds *fds) {
-    long long count_cycles, count_instructions;
+int setup_perf_event(int perf_no int group_fd = -1) {
+  perf_event_attr pe;
+  memset(&pe, 0, sizeof(struct perf_event_attr));
+  pe.size = sizeof(struct perf_event_attr);
 
-    ioctl(fds->fd_cycles, PERF_EVENT_IOC_DISABLE, 0);  // 리더 이벤트 비활성화
-
-    read(fds->fd_cycles, &count_cycles, sizeof(long long));
-    read(fds->fd_instructions, &count_instructions, sizeof(long long));
-
-    printf("CPU cycles: %lld\n", count_cycles);
-    printf("Instructions: %lld\n", count_instructions);
+  if (perf_no == 0){
+    pe.type = PERF_TYPE_HW_CACHE;
+    pe.config = (PERF_COUNT_HW_CACHE_LL) |
+                    (PERF_COUNT_HW_CACHE_OP_READ << 8) |
+                    (PERF_COUNT_HW_CACHE_RESULT_MISS << 16);
+  } else if (perf_no == 1){
+    pe.type = PERF_TYPE_HW_CACHE;
+    pe.config = (PERF_COUNT_HW_CACHE_DTLB) |
+                    (PERF_COUNT_HW_CACHE_OP_READ << 8) |
+                    (PERF_COUNT_HW_CACHE_RESULT_MISS << 16);
+  } else if (perf_no == 2){    
+    pe.type = PERF_TYPE_HARDWARE;
+    pe.config = PERF_COUNT_HW_BRANCH_MISSES;
+  } else if (perf_no == 3){
+    pe.type = PERF_TYPE_HARDWARE;
+    pe.config = PERF_COUNT_HW_INSTRUCTIONS;
+  }
+  
+  pe.disabled = 1;
+  pe.exclude_kernel = 1;
+  pe.exclude_hv = 1;
+  
+  int fd = perf_event_open(&pe, 0, -1, -1, 0);
+  if (fd == -1) {
+    std::cerr << "Error opening perf event: " << strerror(errno) << std::endl;
+return -1;
+  }  
+  return fd;
 }
 
-// 성능 이벤트 닫기
-void close_perf_events(perf_fds *fds) {
-    close(fds->fd_cycles);
-    close(fds->fd_instructions);
+long long close_perf_event(int fd) {
+  long long results = 0;
+  if (read(fd, &results, sizeof(long long)) == -1) {
+    std::cerr << "Error reading perf event: " << strerror(errno) << std::endl;
+    close(fd);
+  }
+  return results;
 }
-
-#endif
-

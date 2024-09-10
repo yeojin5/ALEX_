@@ -981,9 +981,11 @@ class Alex {
   // Directly returns a pointer to the payload found through find(key)
   // This avoids the overhead of creating an iterator
   // Returns null pointer if there is no exact match of the key
-  P* get_payload(const T& key) {
+
+  P* get_payload(const T& key, std::string search_type) {
     stats_.num_lookups++;
     // yj
+	bstat.search_type = search_type;
     bstat.total_start = std::chrono::system_clock::now(); // yj
     
     auto tmp = Point();
@@ -992,7 +994,7 @@ class Alex {
     data_node_type* leaf = get_leaf(key);
     tmp.end = std::chrono::system_clock::now();
     bstat.points.push_back(tmp);
-    
+
     auto f_key = Point();
     f_key.OP = operation::FIND_KEY;
     f_key.start = std::chrono::system_clock::now();
