@@ -982,10 +982,11 @@ class Alex {
   // This avoids the overhead of creating an iterator
   // Returns null pointer if there is no exact match of the key
 
-  P* get_payload(const T& key, std::string search_type) {
+  P* get_payload(const T& key, std::string search_type, int perf_no) {
     stats_.num_lookups++;
     // yj
 	bstat.search_type = search_type;
+	bstat.perf_no = perf_no;
     bstat.total_start = std::chrono::system_clock::now(); // yj
     
     auto tmp = Point();

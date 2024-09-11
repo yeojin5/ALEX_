@@ -15,6 +15,7 @@
 #include <immintrin.h>
 #include <avx512fintrin.h>
 #include <cstdint>
+#include "perf_event.h"
 //#include "alex_fanout_tree.h" // yj
 
 
@@ -29,8 +30,6 @@
 #define ALEX_DATA_NODE_KEY_AT(i) data_slots_[i].first
 #define ALEX_DATA_NODE_PAYLOAD_AT(i) data_slots_[i].second
 #endif
-
-#define SEA 4
 
 
 // Whether we use lzcnt and tzcnt when manipulating a bitmap (e.g., when finding
@@ -1483,16 +1482,16 @@ namespace alex {
 				 auto search = Point();
 				 search.OP = operation::SEARCH;
 				 search.start = std::chrono::system_clock::now();
-// perf
-				 int fd_llc_miss = setup_perf_event(0);
-				 int fd_dtlb_miss = setup_perf_event(1);
-				 int fd_branch_miss = setup_perf_event(2);
-				 int fd_instructions = setup_perf_event(3);
-
-				 enable_perf_event(fd_llc_miss);
-				 enable_perf_event(fd_dtlb_miss);
-				 enable_perf_event(fd_branch_miss);
-				 enable_perf_event(fd_instructions);
+				 // perf 
+int fd_llc_miss = -1;
+int fd_dtlb_miss = -1;
+int fd_branch_miss = -1;
+int fd_instructions = -1;
+initialize_perf_events();
+    start_perf_event(fd_llc_miss);
+    start_perf_event(fd_dtlb_miss);
+    start_perf_event(fd_branch_miss);
+    start_perf_event(fd_instructions);
 				 int pos;
 				 if(bstat->search_type == "exponential") pos = exponential_search_upper_bound(predicted_pos, key) - 1;
 				 else if(bstat->search_type == "bin") pos = yj_bin_search(predicted_pos, key) - 1;
@@ -1503,19 +1502,14 @@ namespace alex {
 				 else if(bstat->search_type == "slin") pos = yj_linSIMD_search(predicted_pos, key) - 1;
 				 else if(bstat->search_type == "mb_slin") pos = yj_mb_linSIMD_search(predicted_pos, key) - 1;
 				 else if(bstat->search_type == "ex_mb_slin") pos = exponential_simd_search_upper_bound(predicted_pos, key) - 1;
-				 disable_perf_event(fd_llc_miss);
-				 disable_perf_event(fd_dtlb_miss);
-				 disable_perf_event(fd_branch_miss);
-				 disable_perf_event(fd_instructions);
-
-				 bstat->llc_miss_count += close_perf_event(fd_llc_miss);
-				 bstat->dtlb_miss_count += close_perf_event(fd_dtlb_miss);
-				 bstat->branch_miss_count += close_perf_event(fd_branch_miss);
-				 bstat->instructions_count += close_perf_event(fd_instructions);
-				 std::cout << "LLC Cache Misses: " << bstat->llc_miss_count << std::endl;
-				 std::cout << "DTLB Misses: " << bstat->dtlb_miss_count << std::endl;
-				 std::cout << "Branch Misses: " << bstat->branch_miss_count << std::endl;
-				 std::cout << "Instructions: " << bstat->instructions_count << std::endl;
+				 bstat->llc_miss += stop_perf_event(fd_llc_miss);
+				 bstat->dtlb_miss += stop_perf_event(fd_dtlb_miss);
+				 bstat->branch_miss += stop_perf_event(fd_branch_miss);
+				 bstat->instructions += stop_perf_event(fd_instructions);
+				 }
+				 std::cout << "perf_no: " << bstat->perf_no << std::endl;
+close_perf_events();
+				std::cout << "perf_result "<< bstat->llc_miss << std::endl;
 
 				 search.end = std::chrono::system_clock::now();
 				 bstat->points.push_back(search);

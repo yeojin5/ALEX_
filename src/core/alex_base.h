@@ -79,10 +79,12 @@ namespace alex{
 	nano fk_sec{0};
 	nano pred_sec{0};
 	nano search_sec{0};
-long long llc_miss_count;
-long long dtlb_miss_count;
-long long branch_miss_count;
-long long instructions_count;
+long long llc_miss;
+long long dtlb_miss;
+long long branch_miss;
+long long instructions;
+
+	int perf_no;
 
 	void calculate_point() {
 	    while (!points.empty()) {
