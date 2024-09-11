@@ -34,11 +34,11 @@
 #include <iostream>
 #include <stack>
 #include <type_traits>
+#include <vector>
 
 #include "alex_base.h"
 #include "alex_fanout_tree.h"
 #include "alex_nodes.h"
-
 // Whether we account for floating-point precision issues when traversing down
 // ALEX.
 // These issues rarely occur in practice but can cause incorrect behavior.
@@ -146,7 +146,7 @@ class Alex {
   };
   ExperimentalParams experimental_params_;
 
-  /* Structs used internally */
+  Bstat bstat;
 
  private:
   /* Statistics related to the key domain.
@@ -223,7 +223,7 @@ class Alex {
       : key_less_(comp), allocator_(alloc) {
     // Set up root as empty data node
     auto empty_data_node = new (data_node_allocator().allocate(1))
-        data_node_type(key_less_, allocator_);
+        data_node_type(key_less_, allocator_); 
     empty_data_node->bulk_load(nullptr, 0);
     root_node_ = empty_data_node;
     stats_.num_data_nodes++;
@@ -906,7 +906,7 @@ class Alex {
   typename self_type::Iterator find(const T& key) {
     stats_.num_lookups++;
     data_node_type* leaf = get_leaf(key);
-    int idx = leaf->find_key(key);
+    int idx = leaf->find_key(key, &this);
     if (idx < 0) {
       return end();
     } else {
@@ -917,7 +917,7 @@ class Alex {
   typename self_type::ConstIterator find(const T& key) const {
     stats_.num_lookups++;
     data_node_type* leaf = get_leaf(key);
-    int idx = leaf->find_key(key);
+    int idx = leaf->find_key(key, &this);
     if (idx < 0) {
       return cend();
     } else {
@@ -981,15 +981,34 @@ class Alex {
   // Directly returns a pointer to the payload found through find(key)
   // This avoids the overhead of creating an iterator
   // Returns null pointer if there is no exact match of the key
-  P* get_payload(const T& key) const {
+
+  P* get_payload(const T& key, std::string search_type, int perf_no) {
     stats_.num_lookups++;
+    // yj
+	bstat.search_type = search_type;
+	bstat.perf_no = perf_no;
+    bstat.total_start = std::chrono::system_clock::now(); // yj
+    
+    auto tmp = Point();
+    tmp.OP = operation::LEAF;
+    tmp.start = std::chrono::system_clock::now();
     data_node_type* leaf = get_leaf(key);
-    int idx = leaf->find_key(key);
+    tmp.end = std::chrono::system_clock::now();
+    bstat.points.push_back(tmp);
+
+    auto f_key = Point();
+    f_key.OP = operation::FIND_KEY;
+    f_key.start = std::chrono::system_clock::now();
+    int idx = leaf->find_key(key, &bstat);
+    f_key.end = std::chrono::system_clock::now();
+    bstat.points.push_back(f_key);
+    
     if (idx < 0) {
       return nullptr;
     } else {
       return &(leaf->get_payload(idx));
     }
+    bstat.total_end = std::chrono::system_clock::now();
   }
 
   // Looks for the last key no greater than the input value
@@ -998,7 +1017,7 @@ class Alex {
     stats_.num_lookups++;
     data_node_type* leaf = get_leaf(key);
     const int idx = leaf->upper_bound(key) - 1;
-    if (idx >= 0) {
+	if(idx >= 0) {
       return Iterator(leaf, idx);
     }
 

@@ -25,6 +25,10 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <linux/perf_event.h>
 #include <asm/unistd.h>
 #include <cstring>
+	 int fd_llc_miss = -1;
+				 int fd_dtlb_miss = -1;
+				 int fd_branch_miss = -1;
+				 int fd_instructions = -1;
 
 // 성능 카운터 이벤트 설정 함수
 int setup_perf_event(int perf_type, int perf_config) {
