@@ -977,7 +977,6 @@ class Alex {
     return std::pair<ConstIterator, ConstIterator>(lower_bound(key),
                                                    upper_bound(key));
   }
-
   // Directly returns a pointer to the payload found through find(key)
   // This avoids the overhead of creating an iterator
   // Returns null pointer if there is no exact match of the key
@@ -991,6 +990,20 @@ class Alex {
       return &(leaf->get_payload(idx));
     }
   }
+Bstat bstat;
+	P* get_payload(const T& key, std::string search_type_, int perf_no_) {
+	stats_.num_lookups++;
+	bstat.search_type = search_type_;
+	bstat.perf_no = perf_no_;
+
+    data_node_type* leaf = get_leaf(key);
+    int idx = leaf->find_key(key, search_type_, perf_no_);
+    if (idx < 0) {
+      return nullptr;
+    } else {
+      return &(leaf->get_payload(idx));
+    }
+}
 
   // Looks for the last key no greater than the input value
   // Conceptually, this is equal to the last key before upper_bound()
