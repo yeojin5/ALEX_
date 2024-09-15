@@ -1310,19 +1310,19 @@ namespace alex {
 						 int find_key(const T& key, std::string search_type_, int perf_no_) {
 							 num_lookups_++;
 							 int predicted_pos = predict_position(key);
-							//	std::cout << "predicted_pos: " << predicted_pos << std::endl; 
-int pos;
+							 //	std::cout << "predicted_pos: " << predicted_pos << std::endl;
+							 int pos;
 							 if(search_type_ == "exponential") pos = exponential_search_upper_bound(predicted_pos, key) - 1;
 							 else if(search_type_ == "bin") pos = yj_bin_search(predicted_pos, key) - 1;
 							 else if(search_type_ == "bbin") pos = yj_bbin_search(predicted_pos, key) - 1;
 							 else if(search_type_ == "mb_bbin") pos = yj_mb_bbin_search(predicted_pos, key) - 1;
 							 else if(search_type_ == "ex_mb_bbin") pos = exponential_bbin_search_upper_bound(predicted_pos, key) - 1;
 							 else if(search_type_ == "lin") pos = yj_lin_search(predicted_pos, key) - 1;
-							 else if(search_type_ == "slin") pos = yj_linSIMD_search(predicted_pos, key) - 1;
-							 else if(search_type_ == "mb_slin") pos = yj_mb_linSIMD_search(predicted_pos, key) - 1;
-							 else if(search_type_ == "ex_mb_slin") pos = exponential_simd_search_upper_bound(predicted_pos, key) - 1;
-// std::cout << "pos: "<< pos << "ALEX_DATA_NODE_KEY_AT(pos): " << ALEX_DATA_NODE_KEY_AT(pos) << "key: " << key <<std::endl; 							 
-if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
+							 else if(search_type_ == "slin") pos = yj_linSIMD_search(predicted_pos, key);
+							 else if(search_type_ == "mb_slin") pos = yj_mb_linSIMD_search(predicted_pos, key);
+							 else if(search_type_ == "ex_mb_slin") pos = exponential_simd_search_upper_bound(predicted_pos, key);
+							 // std::cout << "pos: "<< pos << "ALEX_DATA_NODE_KEY_AT(pos): " << ALEX_DATA_NODE_KEY_AT(pos) << "key: " << key <<std::endl;
+							 if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
 								 return -1;
 							 } else {
 								 return pos;
@@ -1487,66 +1487,70 @@ if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
 						 // yj
 						 template <class K>
 							 inline int yj_mb_bbin_search(int m, const K& key) {
-								int first = 0;
+								 int first = 0;
 								 int last = data_capacity_;
-								 intptr_t pos = MINUS_ONE; // 
-								 intptr_t logstep = bsr(n);
-								 intptr_t step = intptr_t(1) << logstep;
+								 intptr_t pos = MINUS_ONE; //
 
-							 // key_slot_(m)>= key	
-								if(key_greaterequal(ALEX_DATA_NODE_KEY_AT(m),key)){
-								 int n = m - first;
-								 while(step > 0){
-								 if(first + step >= last) break;
-									 first = (key_lessequal(ALEX_DATA_NODE_KEY_AT(first + step), key) ? first + step : first);
-									 step >>= 1;
-								 }
-								 return first + 1;}
-								else{
-								int n = last - m;
-								first = m;
-								while(step > 0){
-								 if(first + step >= last) break;
-									 first = (key_lessequal(ALEX_DATA_NODE_KEY_AT(first + step), key) ? first + step : first);
-									 step >>= 1;
-								 }
-								 return first + 1;}
-															
-}
+								 // key_slot_(m)>= key
+								 if(key_greaterequal(ALEX_DATA_NODE_KEY_AT(m),key)){
+									 int n = m - first;
+									 intptr_t logstep = bsr(n);
+									 intptr_t step = intptr_t(1) << logstep;
+									 while(step > 0){
+										 if(first + step >= last) break;
+										 first = (key_lessequal(ALEX_DATA_NODE_KEY_AT(first + step), key) ? first + step : first);
+										 step >>= 1;
+									 }
+									 return first + 1;}
+								 else {
+									 int n = last - m;
+									 first = m;
+									 intptr_t logstep = bsr(n);
+									 intptr_t step = intptr_t(1) << logstep;
+									 while(step > 0){
+										 if(first + step >= last) break;
+										 first = (key_lessequal(ALEX_DATA_NODE_KEY_AT(first + step), key) ? first + step : first);
+										 step >>= 1;
+									 }
+									 return first + 1;}
+
 							 }
 
 						 template <class K>
 							 inline int yj_mb_linSIMD_search(int m, const K& key) {
+								 __m512i values = _mm512_set_epi64(key, key, key, key, key, key, key, key);
 								 const int step = 8;
-								 __m512i values = _mm512_set1_epi64(key);
-								 if(ALEX_DATA_NODE_KEY_AT(m) < key){
+								 // m <= key 
+								 if(key_lessequal(ALEX_DATA_NODE_KEY_AT(m),key)){
 									 const K* data = &(ALEX_DATA_NODE_KEY_AT(m));
 									 int size = data_capacity_ - m;
 									 for(int i = 0; i < size; i+=step){
-										 int remaining = std::min(step, size - i);
 										 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
 										 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec,values);
-										 if(cmp_mask != 0) {
-											 int index = __builtin_ctz(cmp_mask);
-											 return i + index;
+										 int non_zero_mask = ~cmp_mask & 0xFF;	 
+										 if (non_zero_mask) {
+											 int index = __builtin_ctz(non_zero_mask);  // 첫 번째 0의 위치 찾기
+											 return m + i + index;
 										 }
 									 }
 									 return data_capacity_;
 								 }
 								 else{
 									 const K* data = &(ALEX_DATA_NODE_KEY_AT(0));
-									 int size = m + 1;
-									 for(int i = size-step; i >= 0; i-=step){
-										 int remaining = std::min(step, i+1);
-										 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
-										 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec,values);
-										 if(cmp_mask != 0) {
-											 int index = __builtin_ctz(cmp_mask);
-											 return i + index;
+									 for (int i=m; i>=0; i-=step){
+										 int load_index = i - step + 1;  // 0을 넘지 않도록 load_index를 조정
+										 load_index = load_index < 0 ? 0 : load_index;  // 경계값 처리 (0 이하로 가지 않도록)
+										 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[load_index]));
+										 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);  // key보다 작은 값에 대한 마스크
+										 int non_zero_mask = ~cmp_mask & 0xFF;  // 첫 번째 0이 발생하는 비트를 찾음
+										 if (non_zero_mask) {
+											 int index = __builtin_ctz(non_zero_mask);  // 첫 번째 0 비트 위치를 찾음
+											 return load_index + index;  // 실제 인덱스를 반환
 										 }
+										 if (i < step) break;
 									 }
-									 return 0;
 								 }
+								 return data_capacity_;
 							 }
 						 template <class K>
 							 inline int yj_bin_search(int m, const K& key) {
@@ -1576,7 +1580,7 @@ intptr_t MINUS_ONE = -1;
 								 int first = 0;
 								 int last = data_capacity_;
 								 int n = last - first;
-								 intptr_t pos = MINUS_ONE; // 
+								 intptr_t pos = MINUS_ONE; //
 								 intptr_t logstep = bsr(n);
 								 intptr_t step = intptr_t(1) << logstep;
 								// std::cout << "key: " << key << std::endl;
@@ -1602,15 +1606,17 @@ intptr_t MINUS_ONE = -1;
 						 template <class K>
 							 inline int yj_linSIMD_search(int m, const K& key) {
 								 const K* data = &(ALEX_DATA_NODE_KEY_AT(0));
-								 __m512i values = _mm512_set1_epi32(key);
+								 __m512i values = _mm512_set_epi64(key, key, key, key, key, key, key, key);
 								 int size = data_capacity_;
 								 const int step = 8;
-								 for(int i =0; i < data_capacity_; i+=step){
+								 for (int i = 0; i < size; i += step) {
 									 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
-									 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec,values);
-									 if(cmp_mask != 0) {
-										 int index = __builtin_ctz(cmp_mask);
-										 return i+index;
+									 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);
+
+									 int non_zero_mask = ~cmp_mask & 0xFF;
+									 if (non_zero_mask) {
+										 int index = __builtin_ctz(non_zero_mask);  // 첫 번째 0의 위치 찾기
+										 return i + index;
 									 }
 								 }
 								 return data_capacity_;
@@ -1632,59 +1638,80 @@ intptr_t MINUS_ONE = -1;
 							 }
 						 template <class K>
 							 inline int yj_SIMD_lin_search_upper_bound(int l, int r, int m, const K& key) {
+								 __m512i values = _mm512_set1_epi64(key);  // key 값을 8개로 채운 SIMD 레지스터
 								 const int step = 8;
-								 __m512i values = _mm512_set1_epi64(key);
-								 if (ALEX_DATA_NODE_KEY_AT(m)==key){return m;}
-								 // key가 m보다 크면 오른쪽 방향으로 탐색
-								 if (ALEX_DATA_NODE_KEY_AT(m) < key) {
-									 const K* data = &(ALEX_DATA_NODE_KEY_AT(m + 1));
-									 int size = r - m;
+
+								 // m <= key인 경우, m에서 last까지 정방향 탐색
+								 if (key_lessequal(ALEX_DATA_NODE_KEY_AT(m), key)) {
+									 const K* data = &(ALEX_DATA_NODE_KEY_AT(m));  // m 위치에서 시작
+									 int size = r - m;  // m에서 last까지의 크기
+
 									 for (int i = 0; i < size; i += step) {
-										 int remaining = std::min(step, size - i);
+										 // SIMD 데이터를 로드하고 비교
 										 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
+
+										 // key보다 작은 값에 대한 마스크 계산
 										 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);
-										 if (cmp_mask != 0) {
-											 int index = __builtin_ctz(cmp_mask);
-											 return m + 1 + i + index;  // m + 1 이후로 탐색
+										 int non_zero_mask = ~cmp_mask & 0xFF;
+
+										 if (non_zero_mask) {
+											 int index = __builtin_ctz(non_zero_mask);  // 첫 번째 0 비트 위치 찾기
+											 return m + i + index;  // 실제 인덱스를 반환
 										 }
 									 }
-									 return r + 1;  // 범위 안에 없으면 r + 1 반환
+									 return r;  // 끝까지 찾지 못한 경우 last 반환
 								 }
-								 // key가 m보다 작으면 왼쪽 방향으로 탐색
+								 // m > key인 경우, m에서 first까지 역방향 탐색
 								 else {
-									 const K* data = &(ALEX_DATA_NODE_KEY_AT(l));
-									 int size = m - l + 1;
-									 for (int i = size - step; i >= 0; i -= step) {
-										 int remaining = std::min(step, i + 1);
+									 const K* data = &(ALEX_DATA_NODE_KEY_AT(l));  // l에서 시작
+									 int size = m - l + 1;  // l에서 m까지의 크기
+
+									 for (int i = 0; i < size; i += step) {
+										 // 정방향으로 SIMD 데이터를 로드하고 비교
 										 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
+
+										 // key보다 작은 값에 대한 마스크 계산
 										 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);
-										 if (cmp_mask != 0) {
-											 int index = __builtin_ctz(cmp_mask);
-											 return l + i + index;  // l부터 m까지 탐색
+										 int non_zero_mask = ~cmp_mask & 0xFF;  // 모든 8개의 값에 대해 처리
+
+										 if (non_zero_mask) {
+											 int index = __builtin_ctz(non_zero_mask);  // 첫 번째 0 비트 위치 찾기
+											 return l + i + index;
 										 }
 									 }
-									 return l;  // 범위 안에 없으면 l 반환
+									 return l;  // 끝까지 찾지 못한 경우 l 반환
 								 }
 							 }
 						 template <class K>
 							 inline int yj_bbinary_search_upper_bound(int l, int r, int m, const K& key) {
 								 int first = l;
 								 int last = r;
-								 if (first == last)
-									 return first;
-								 if(ALEX_DATA_NODE_KEY_AT(m) <= key) first = m+1;
-								 else last = m;    
-								 auto n = last - first;
-								 while (n > 1) {
-									 int half = n / 2;
-									 __builtin_prefetch(&ALEX_DATA_NODE_KEY_AT(first + half / 2), 0, 0);
-									 __builtin_prefetch(&ALEX_DATA_NODE_KEY_AT(first + half + half / 2), 0, 0);
-									 // Update the comparison to find the upper bound
-									 first = ALEX_DATA_NODE_KEY_AT(half) <= key ? first + half : first;
-									 n -= half;
-								 }
-								 // Return the index of the first element greater than key
-								 return (first != last && ALEX_DATA_NODE_KEY_AT(first) <= key) ? first : first + 1;
+								 intptr_t pos = MINUS_ONE; //
+
+								 // key_slot_(m)>= key
+								 if(key_greaterequal(ALEX_DATA_NODE_KEY_AT(m),key)){
+									 int n = m - first;
+									 intptr_t logstep = bsr(n);
+									 intptr_t step = intptr_t(1) << logstep;
+									 while(step > 0){
+										 if(first + step >= last) break;
+										 first = (key_lessequal(ALEX_DATA_NODE_KEY_AT(first + step), key) ? first + step : first);
+										 step >>= 1;
+									 }
+									 return first + 1;}
+								 else {
+									 int n = last - m;
+									 first = m;
+									 intptr_t logstep = bsr(n);
+									 intptr_t step = intptr_t(1) << logstep;
+									 while(step > 0){
+										 if(first + step >= last) break;
+										 first = (key_lessequal(ALEX_DATA_NODE_KEY_AT(first + step), key) ? first + step : first);
+										 step >>= 1;
+									 }
+									 return first + 1;}
+
+
 							 }
 
 						 // Searches for the first position no less than key
