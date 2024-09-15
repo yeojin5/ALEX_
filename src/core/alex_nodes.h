@@ -1310,7 +1310,8 @@ namespace alex {
 						 int find_key(const T& key, std::string search_type_, int perf_no_) {
 							 num_lookups_++;
 							 int predicted_pos = predict_position(key);
-							 int pos;
+							//	std::cout << "predicted_pos: " << predicted_pos << std::endl; 
+int pos;
 							 if(search_type_ == "exponential") pos = exponential_search_upper_bound(predicted_pos, key) - 1;
 							 else if(search_type_ == "bin") pos = yj_bin_search(predicted_pos, key) - 1;
 							 else if(search_type_ == "bbin") pos = yj_bbin_search(predicted_pos, key) - 1;
@@ -1320,7 +1321,8 @@ namespace alex {
 							 else if(search_type_ == "slin") pos = yj_linSIMD_search(predicted_pos, key) - 1;
 							 else if(search_type_ == "mb_slin") pos = yj_mb_linSIMD_search(predicted_pos, key) - 1;
 							 else if(search_type_ == "ex_mb_slin") pos = exponential_simd_search_upper_bound(predicted_pos, key) - 1;
-							 if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
+// std::cout << "pos: "<< pos << "ALEX_DATA_NODE_KEY_AT(pos): " << ALEX_DATA_NODE_KEY_AT(pos) << "key: " << key <<std::endl; 							 
+if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
 								 return -1;
 							 } else {
 								 return pos;
@@ -1485,23 +1487,32 @@ namespace alex {
 						 // yj
 						 template <class K>
 							 inline int yj_mb_bbin_search(int m, const K& key) {
-								 int first = 0;
+								int first = 0;
 								 int last = data_capacity_;
-								 if (first == last)
-									 return first;
-								 if(ALEX_DATA_NODE_KEY_AT(m) <= key) first = m+1;
-								 else last = m;    
-								 auto n = std::distance(first, last);
-								 while (n > 1) {
-									 int half = n / 2;
-									 __builtin_prefetch(ALEX_DATA_NODE_KEY_AT(first + half / 2), 0, 0);
-									 __builtin_prefetch(ALEX_DATA_NODE_KEY_AT(first + half + half / 2), 0, 0);
-									 // Update the comparison to find the upper bound
-									 first = ALEX_DATA_NODE_KEY_AT(half) <= key ? first + half : first;
-									 n -= half;
+								 intptr_t pos = MINUS_ONE; // 
+								 intptr_t logstep = bsr(n);
+								 intptr_t step = intptr_t(1) << logstep;
+
+							 // key_slot_(m)>= key	
+								if(key_greaterequal(ALEX_DATA_NODE_KEY_AT(m),key)){
+								 int n = m - first;
+								 while(step > 0){
+								 if(first + step >= last) break;
+									 first = (key_lessequal(ALEX_DATA_NODE_KEY_AT(first + step), key) ? first + step : first);
+									 step >>= 1;
 								 }
-								 // Return the index of the first element greater than key
-								 return (first != last && *first <= key) ? first : first + 1;
+								 return first + 1;}
+								else{
+								int n = last - m;
+								first = m;
+								while(step > 0){
+								 if(first + step >= last) break;
+									 first = (key_lessequal(ALEX_DATA_NODE_KEY_AT(first + step), key) ? first + step : first);
+									 step >>= 1;
+								 }
+								 return first + 1;}
+															
+}
 							 }
 
 						 template <class K>
@@ -1551,25 +1562,35 @@ namespace alex {
 								 }
 								 return l;
 							 }
+intptr_t MINUS_ONE = -1;
+						 inline intptr_t bsr(size_t x) {
+							 intptr_t ret = -1;
+							 while (x) {
+								 x >>= 1;
+								 ++ret;
+							 }
+							 return ret;
+						 }
 						 template <class K>
 							 inline int yj_bbin_search(int m, const K& key) {
 								 int first = 0;
 								 int last = data_capacity_;
-								 if (first == last)
-									 return first;
-								 auto n = std::distance(first, last);
-								 while (n > 1) {
-									 int half = n / 2;
-									 __builtin_prefetch(ALEX_DATA_NODE_KEY_AT(first + half / 2), 0, 0);
-									 __builtin_prefetch(ALEX_DATA_NODE_KEY_AT(first + half + half / 2), 0, 0);
-									 // Update the comparison to find the upper bound
-									 first = ALEX_DATA_NODE_KEY_AT(half) <= key ? first + half : first;
-									 n -= half;
+								 int n = last - first;
+								 intptr_t pos = MINUS_ONE; // 
+								 intptr_t logstep = bsr(n);
+								 intptr_t step = intptr_t(1) << logstep;
+								// std::cout << "key: " << key << std::endl;
+								 while(step > 0){
+								if(first+step >= last) break;
+        //std::cout << "first + step: " << (first + step)
+        //          << ", ALEX_DATA_NODE_KEY_AT(first + step): " << ALEX_DATA_NODE_KEY_AT(first + step)
+        //          << ", key: " << key << std::endl;
+									 first = (key_lessequal(ALEX_DATA_NODE_KEY_AT(first + step), key) ? first + step : first);
+									 step >>= 1;
 								 }
-								 // Return the index of the first element greater than key
-								 return (first != last && *first <= key) ? first : first + 1;
+								 return first + 1;
 							 }
-				
+
 						 template <class K>
 							 inline int yj_lin_search(int m, const K& key) {
 								 int runner = 0;
@@ -1653,17 +1674,17 @@ namespace alex {
 									 return first;
 								 if(ALEX_DATA_NODE_KEY_AT(m) <= key) first = m+1;
 								 else last = m;    
-								 auto n = std::distance(first, last);
+								 auto n = last - first;
 								 while (n > 1) {
 									 int half = n / 2;
-									 __builtin_prefetch(ALEX_DATA_NODE_KEY_AT(first + half / 2), 0, 0);
-									 __builtin_prefetch(ALEX_DATA_NODE_KEY_AT(first + half + half / 2), 0, 0);
+									 __builtin_prefetch(&ALEX_DATA_NODE_KEY_AT(first + half / 2), 0, 0);
+									 __builtin_prefetch(&ALEX_DATA_NODE_KEY_AT(first + half + half / 2), 0, 0);
 									 // Update the comparison to find the upper bound
 									 first = ALEX_DATA_NODE_KEY_AT(half) <= key ? first + half : first;
 									 n -= half;
 								 }
 								 // Return the index of the first element greater than key
-								 return (first != last && *first <= key) ? first : first + 1;
+								 return (first != last && ALEX_DATA_NODE_KEY_AT(first) <= key) ? first : first + 1;
 							 }
 
 						 // Searches for the first position no less than key
@@ -2341,3 +2362,4 @@ namespace alex {
 							 return str;
 						 }
 				 };
+}
