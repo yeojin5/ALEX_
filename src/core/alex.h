@@ -388,6 +388,13 @@ class Alex {
     params_.approximate_cost_computation = approximate_cost_computation;
   }
 
+   void set_density(double density, double delta = 0.1) {
+	   kInitDensity = density;
+	   kMinDensity = density - delta;
+	   kMaxDensity = density + delta;
+	   std::cout << "Density: "<< kInitDensity << std::endl;
+  }
+
   /*** General helpers ***/
 
  public:
@@ -665,7 +672,7 @@ class Alex {
                                 params_.approximate_model_computation);
     DataNodeStats stats;
     root_node_->cost_ = data_node_type::compute_expected_cost(
-        values, num_keys, data_node_type::kInitDensity_,
+        values, num_keys, kInitDensity,
         params_.expected_insert_frac, &root_data_node_model,
         params_.approximate_cost_computation, &stats);
 
@@ -732,7 +739,7 @@ class Alex {
     // Automatically convert to data node when it is impossible to be better
     // than current cost
     if (num_keys <= derived_params_.max_data_node_slots *
-                        data_node_type::kInitDensity_ &&
+                        kInitDensity &&
         (node->cost_ < kNodeLookupsWeight || node->model_.a_ == 0)) {
       stats_.num_data_nodes++;
       auto data_node = new (data_node_allocator().allocate(1))
@@ -752,7 +759,7 @@ class Alex {
     std::pair<int, double> best_fanout_stats;
     if (experimental_params_.fanout_selection_method == 0) {
       int max_data_node_keys = static_cast<int>(
-          derived_params_.max_data_node_slots * data_node_type::kInitDensity_);
+          derived_params_.max_data_node_slots * kInitDensity);
       best_fanout_stats = fanout_tree::find_best_fanout_bottom_up<T, P>(
           values, num_keys, node, total_keys, used_fanout_tree_nodes,
           derived_params_.max_fanout, max_data_node_keys,
@@ -771,7 +778,7 @@ class Alex {
     // Decide whether this node should be a model node or data node
     if (best_fanout_tree_cost < node->cost_ ||
         num_keys > derived_params_.max_data_node_slots *
-                       data_node_type::kInitDensity_) {
+                       kInitDensity) {
       // Convert to model node based on the output of the fanout tree
       stats_.num_model_nodes++;
       auto model_node = new (model_node_allocator().allocate(1))
@@ -788,7 +795,7 @@ class Alex {
             1;
         used_fanout_tree_nodes.clear();
         int max_data_node_keys = static_cast<int>(
-            derived_params_.max_data_node_slots * data_node_type::kInitDensity_);
+            derived_params_.max_data_node_slots * kInitDensity);
         fanout_tree::compute_level<T, P>(
             values, num_keys, node, total_keys, used_fanout_tree_nodes,
             best_fanout_tree_depth, max_data_node_keys,
@@ -983,36 +990,43 @@ class Alex {
   P* get_payload(const T& key) const {
     stats_.num_lookups++;
     data_node_type* leaf = get_leaf(key);
-    int idx = leaf->find_key(key);
-    if (idx < 0) {
-      return nullptr;
-    } else {
-      return &(leaf->get_payload(idx));
-    }
+	int idx = leaf->find_key(key);
+	if (idx < 0) {
+		return nullptr;
+	} else {
+		return &(leaf->get_payload(idx));
+	}
   }
-Bstat bstat;
-	P* get_payload(const T& key, std::string search_type_, int perf_no_) {
-	stats_.num_lookups++;
-	bstat.search_type = search_type_;
-	bstat.perf_no = perf_no_;
+  Bstat bstat;
+  P* get_payload(const T& key, std::string search_type_, int perf_no_) {
+	  stats_.num_lookups++;
+	  bstat.search_type = search_type_;
 
-    data_node_type* leaf = get_leaf(key);
-    int idx = leaf->find_key(key, search_type_, perf_no_);
-    if (idx < 0) {
-      return nullptr;
-    } else {
-      return &(leaf->get_payload(idx));
-    }
-}
+	  data_node_type* leaf = get_leaf(key);
+	  int idx = leaf->find_key(key, &bstat);
+	  if (idx < 0) {
+		  return nullptr;
+	  } else {
+		  return &(leaf->get_payload(idx));
+	  }
+  }
 
-  // Looks for the last key no greater than the input value
-  // Conceptually, this is equal to the last key before upper_bound()
-  typename self_type::Iterator find_last_no_greater_than(const T& key) {
-    stats_.num_lookups++;
-    data_node_type* leaf = get_leaf(key);
-    const int idx = leaf->upper_bound(key) - 1;
-    if (idx >= 0) {
-      return Iterator(leaf, idx);
+	void get_perf(long long llc_miss_, long long dtlb_miss_, long long branch_miss_, long long instructions_) {
+		llc_miss_ = bstat.llc_miss;
+		dtlb_miss_ = bstat.dtlb_miss;
+		branch_miss_ = bstat.branch_miss;
+		instructions_ = bstat.instructions;
+	}
+
+
+	// Looks for the last key no greater than the input value
+	// Conceptually, this is equal to the last key before upper_bound()
+	typename self_type::Iterator find_last_no_greater_than(const T& key) {
+		stats_.num_lookups++;
+		data_node_type* leaf = get_leaf(key);
+		const int idx = leaf->upper_bound(key) - 1;
+		if (idx >= 0) {
+			return Iterator(leaf, idx);
     }
 
     // Edge case: need to check previous data node(s)
@@ -1206,7 +1220,7 @@ Bstat bstat;
 
         if (fanout_tree_depth == 0) {
           // expand existing data node and retrain model
-          leaf->resize(data_node_type::kMinDensity_, true,
+          leaf->resize(kMinDensity, true,
                        leaf->is_append_mostly_right(),
                        leaf->is_append_mostly_left());
           fanout_tree::FTNode& tree_node = used_fanout_tree_nodes[0];

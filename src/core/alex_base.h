@@ -263,6 +263,10 @@ namespace alex{
     constexpr double kNodeLookupsWeight = 20;
     constexpr double kModelSizeWeight = 5e-7;
 
+	static double kInitDensity = 0.7;
+	static double kMaxDensity = 0.8;
+	static double kMinDensity = 0.6;
+	
     /*** Stat Accumulators ***/
 
     struct DataNodeStats {

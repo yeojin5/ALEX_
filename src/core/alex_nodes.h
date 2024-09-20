@@ -12,6 +12,7 @@
 #include <avx512fintrin.h>
 #include <cstdint>
 #include <functional>
+
 // Whether we store key and payload arrays separately in data nodes
 // By default, we store them separately
 #define ALEX_DATA_NODE_SEP_ARRAYS 1
@@ -297,12 +298,12 @@ namespace alex {
 						 uint64_t* bitmap_ = nullptr;
 						 int bitmap_size_ = 0;  // number of int64_t in bitmap
 						 // Variables related to resizing (expansions and contractions)
-						 static constexpr double kMaxDensity_ = 0.8;  // density after contracting,
+						 //constexpr double kMaxDensity = 0.8;  // density after contracting,
 						 // also determines the expansion
 						 // threshold
-						 static constexpr double kInitDensity_ =
-							 0.7;  // density of data nodes after bulk loading
-						 static constexpr double kMinDensity_ = 0.6;  // density after expanding, also
+						 //constexpr double kInitDensity =
+						//	 0.7;  // density of data nodes after bulk loading
+						 //constexpr double kMinDensity = 0.6;  // density after expanding, also
 						 // determines the contraction
 						 // threshold
 						 double expansion_threshold_ = 1;  // expand after m_num_keys is >= this number
@@ -347,7 +348,8 @@ namespace alex {
 							 : AlexNode<T, P>(level, true),
 							 key_less_(comp),
 							 allocator_(alloc),
-							 max_slots_(max_data_node_slots) {}
+							 max_slots_(max_data_node_slots) {
+							 }
 						 ~AlexDataNode() {
 #if ALEX_DATA_NODE_SEP_ARRAYS
 							 if (key_slots_ == nullptr) {
@@ -407,6 +409,11 @@ namespace alex {
 									 uint64_t[other.bitmap_size_];
 								 std::copy(other.bitmap_, other.bitmap_ + other.bitmap_size_, bitmap_);
 							 }
+						 void set_density(double density, double delta = 0.1) {
+							 kInitDensity = density;
+							 kMinDensity = density - delta;
+							 kMaxDensity = density + delta;
+						 }
 						 /*** Allocators ***/
 						 key_alloc_type key_allocator() { return key_alloc_type(allocator_); }
 						 payload_alloc_type payload_allocator() {
@@ -1033,7 +1040,7 @@ namespace alex {
 						 void bulk_load(const V values[], int num_keys,
 								 const LinearModel<T>* pretrained_model = nullptr,
 								 bool train_with_sample = false) {
-							 initialize(num_keys, kInitDensity_);
+							 initialize(num_keys, kInitDensity);
 							 if (num_keys == 0) {
 								 expansion_threshold_ = data_capacity_;
 								 contraction_threshold_ = 0;
@@ -1092,10 +1099,10 @@ namespace alex {
 							 for (int i = last_position + 1; i < data_capacity_; i++) {
 								 ALEX_DATA_NODE_KEY_AT(i) = kEndSentinel_;
 							 }
-							 expansion_threshold_ = std::min(std::max(data_capacity_ * kMaxDensity_,
+							 expansion_threshold_ = std::min(std::max(data_capacity_ * kMaxDensity,
 										 static_cast<double>(num_keys + 1)),
 									 static_cast<double>(data_capacity_));
-							 contraction_threshold_ = data_capacity_ * kMinDensity_;
+							 contraction_threshold_ = data_capacity_ * kMinDensity;
 							 min_key_ = values[0].first;
 							 max_key_ = values[num_keys - 1].first;
 						 }
@@ -1125,7 +1132,7 @@ namespace alex {
 								 this->model_.a_ = precomputed_model->a_;
 								 this->model_.b_ = precomputed_model->b_;
 							 }
-							 initialize(num_actual_keys, kMinDensity_);
+							 initialize(num_actual_keys, kMinDensity);
 							 if (num_actual_keys == 0) {
 								 expansion_threshold_ = data_capacity_;
 								 contraction_threshold_ = 0;
@@ -1136,10 +1143,10 @@ namespace alex {
 							 }
 							 // Special casing if existing node was append-mostly
 							 if (keep_left) {
-								 this->model_.expand((num_actual_keys / kMaxDensity_) / num_keys_);
+								 this->model_.expand((num_actual_keys / kMaxDensity) / num_keys_);
 							 } else if (keep_right) {
-								 this->model_.expand((num_actual_keys / kMaxDensity_) / num_keys_);
-								 this->model_.b_ += (data_capacity_ - (num_actual_keys / kMaxDensity_));
+								 this->model_.expand((num_actual_keys / kMaxDensity) / num_keys_);
+								 this->model_.b_ += (data_capacity_ - (num_actual_keys / kMaxDensity));
 							 } else {
 								 this->model_.expand(static_cast<double>(data_capacity_) / num_keys_);
 							 }
@@ -1188,10 +1195,10 @@ namespace alex {
 							 min_key_ = node->min_key_;
 							 max_key_ = node->max_key_;
 							 expansion_threshold_ =
-								 std::min(std::max(data_capacity_ * kMaxDensity_,
+								 std::min(std::max(data_capacity_ * kMaxDensity,
 											 static_cast<double>(num_keys_ + 1)),
 										 static_cast<double>(data_capacity_));
-							 contraction_threshold_ = data_capacity_ * kMinDensity_;
+							 contraction_threshold_ = data_capacity_ * kMinDensity;
 						 }
 						 static void build_model(const V* values, int num_keys, LinearModel<T>* model,
 								 bool use_sampling = false) {
@@ -1307,20 +1314,21 @@ namespace alex {
 								 return pos;
 							 }
 						 }
-						 int find_key(const T& key, std::string search_type_, int perf_no_) {
+						 int find_key(const T& key, Bstat* bstat) {
 							 num_lookups_++;
 							 int predicted_pos = predict_position(key);
 							 //	std::cout << "predicted_pos: " << predicted_pos << std::endl;
-							 int pos;
-							 if(search_type_ == "exponential") pos = exponential_search_upper_bound(predicted_pos, key) - 1;
-							 else if(search_type_ == "bin") pos = yj_bin_search(predicted_pos, key) - 1;
-							 else if(search_type_ == "bbin") pos = yj_bbin_search(predicted_pos, key) - 1;
-							 else if(search_type_ == "mb_bbin") pos = yj_mb_bbin_search(predicted_pos, key) - 1;
-							 else if(search_type_ == "ex_mb_bbin") pos = exponential_bbin_search_upper_bound(predicted_pos, key) - 1;
-							 else if(search_type_ == "lin") pos = yj_lin_search(predicted_pos, key) - 1;
-							 else if(search_type_ == "slin") pos = yj_linSIMD_search(predicted_pos, key);
-							 else if(search_type_ == "mb_slin") pos = yj_mb_linSIMD_search(predicted_pos, key);
-							 else if(search_type_ == "ex_mb_slin") pos = exponential_simd_search_upper_bound(predicted_pos, key);
+							
+							int pos;
+							if(bstat->search_type == "exponential") pos = exponential_search_upper_bound(predicted_pos, key) - 1;
+							 else if(bstat->search_type == "bin") pos = yj_bin_search(predicted_pos, key) - 1;
+							 else if(bstat->search_type == "bbin") pos = yj_bbin_search(predicted_pos, key) - 1;
+							 else if(bstat->search_type == "mb_bbin") pos = yj_mb_bbin_search(predicted_pos, key) - 1;
+							 else if(bstat->search_type == "ex_mb_bbin") pos = exponential_bbin_search_upper_bound(predicted_pos, key) - 1;
+							 else if(bstat->search_type == "lin") pos = yj_lin_search(predicted_pos, key) - 1;
+							 else if(bstat->search_type == "slin") pos = yj_linSIMD_search(predicted_pos, key);
+							 else if(bstat->search_type == "mb_slin") pos = yj_mb_linSIMD_search(predicted_pos, key);
+							 else if(bstat->search_type == "ex_mb_slin") pos = exponential_simd_search_upper_bound(predicted_pos, key);
 							 // std::cout << "pos: "<< pos << "ALEX_DATA_NODE_KEY_AT(pos): " << ALEX_DATA_NODE_KEY_AT(pos) << "key: " << key <<std::endl;
 							 if (pos < 0 || !key_equal(ALEX_DATA_NODE_KEY_AT(pos), key)) {
 								 return -1;
@@ -1518,39 +1526,69 @@ namespace alex {
 
 						 template <class K>
 							 inline int yj_mb_linSIMD_search(int m, const K& key) {
-								 __m512i values = _mm512_set_epi64(key, key, key, key, key, key, key, key);
+								 const K* data = &(ALEX_DATA_NODE_KEY_AT(0));
+								 __m512i values = _mm512_set1_epi64(static_cast<unsigned long long>(key));
 								 const int step = 8;
-								 // m <= key 
-								 if(key_lessequal(ALEX_DATA_NODE_KEY_AT(m),key)){
-									 const K* data = &(ALEX_DATA_NODE_KEY_AT(m));
+
+								 if (key > ALEX_DATA_NODE_KEY_AT(m)) {
+									 // key가 m의 값보다 크면 m에서 data_capacity_까지 탐색
 									 int size = data_capacity_ - m;
-									 for(int i = 0; i < size; i+=step){
-										 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
-										 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec,values);
-										 int non_zero_mask = ~cmp_mask & 0xFF;	 
+
+									 for (int i = 0; i < size; i += step) {
+										 int remaining = size - i;  // 남은 데이터 크기 확인
+
+										 // 만약 남은 데이터가 step보다 적다면, SIMD를 사용할 수 없으므로 linear 탐색으로 처리
+										 if (remaining < step) {
+											 for (int j = 0; j < remaining; ++j) {
+												 if (ALEX_DATA_NODE_KEY_AT(m + i + j) == key) {
+													 return m + i + j;
+												 }
+											 }
+											 return data_capacity_;
+										 }
+
+										 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[m + i]));  // m에서 시작
+										 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);  // SIMD 비교
+
+										 int non_zero_mask = ~cmp_mask & 0xFF;
 										 if (non_zero_mask) {
 											 int index = __builtin_ctz(non_zero_mask);  // 첫 번째 0의 위치 찾기
 											 return m + i + index;
 										 }
 									 }
+
+									 return data_capacity_;
+								 } else {
+									 // key가 m의 값보다 작으면 m에서 0까지 탐색
+									 for (int i = 0; i <= m; i += step) {
+										 int reverse_index = m - i;  // 역방향 탐색을 위한 인덱스
+										 int load_index = reverse_index - step + 1;
+										 load_index = load_index < 0 ? 0 : load_index;  // 경계 처리 (0보다 작지 않게)
+
+										 int remaining = reverse_index - load_index + 1;  // 남은 데이터 크기 확인
+
+										 // 남은 데이터가 step보다 적다면 linear 탐색으로 처리
+										 if (remaining < step) {
+											 for (int j = 0; j < remaining; ++j) {
+												 if (ALEX_DATA_NODE_KEY_AT(load_index + j) == key) {
+													 return load_index + j;
+												 }
+											 }
+											 return data_capacity_;
+										 }
+
+										 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[load_index]));  // 역방향으로 데이터 로드
+										 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);  // SIMD 비교
+
+										 int non_zero_mask = ~cmp_mask & 0xFF;
+										 if (non_zero_mask) {
+											 int index = __builtin_ctz(non_zero_mask);  // 첫 번째 0의 위치 찾기
+											 return load_index + index;
+										 }
+									 }
+
 									 return data_capacity_;
 								 }
-								 else{
-									 const K* data = &(ALEX_DATA_NODE_KEY_AT(0));
-									 for (int i=m; i>=0; i-=step){
-										 int load_index = i - step + 1;  // 0을 넘지 않도록 load_index를 조정
-										 load_index = load_index < 0 ? 0 : load_index;  // 경계값 처리 (0 이하로 가지 않도록)
-										 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[load_index]));
-										 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);  // key보다 작은 값에 대한 마스크
-										 int non_zero_mask = ~cmp_mask & 0xFF;  // 첫 번째 0이 발생하는 비트를 찾음
-										 if (non_zero_mask) {
-											 int index = __builtin_ctz(non_zero_mask);  // 첫 번째 0 비트 위치를 찾음
-											 return load_index + index;  // 실제 인덱스를 반환
-										 }
-										 if (i < step) break;
-									 }
-								 }
-								 return data_capacity_;
 							 }
 						 template <class K>
 							 inline int yj_bin_search(int m, const K& key) {
@@ -1580,7 +1618,7 @@ intptr_t MINUS_ONE = -1;
 								 int first = 0;
 								 int last = data_capacity_;
 								 int n = last - first;
-								 intptr_t pos = MINUS_ONE; //
+								 intptr_t pos = MINUS_ONE;
 								 intptr_t logstep = bsr(n);
 								 intptr_t step = intptr_t(1) << logstep;
 								// std::cout << "key: " << key << std::endl;
@@ -1609,7 +1647,21 @@ intptr_t MINUS_ONE = -1;
 								 __m512i values = _mm512_set_epi64(key, key, key, key, key, key, key, key);
 								 int size = data_capacity_;
 								 const int step = 8;
+
 								 for (int i = 0; i < size; i += step) {
+									 int remaining = size - i;  // 남은 데이터 크기 확인
+
+									 // 남은 데이터가 step보다 작으면 linear 탐색으로 처리
+									 if (remaining < step) {
+										 for (int j = 0; j < remaining; ++j) {
+											 if (ALEX_DATA_NODE_KEY_AT(i + j) == key) {
+												 return i + j;  // 선형 탐색으로 처리
+											 }
+										 }
+										 return data_capacity_;  // 끝까지 탐색했는데 없으면 data_capacity_ 반환
+									 }
+
+									 // SIMD 연산 수행
 									 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
 									 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);
 
@@ -1619,6 +1671,7 @@ intptr_t MINUS_ONE = -1;
 										 return i + index;
 									 }
 								 }
+
 								 return data_capacity_;
 							 }
 						 // Searches for the first position greater than key in range [l, r)
@@ -1638,79 +1691,52 @@ intptr_t MINUS_ONE = -1;
 							 }
 						 template <class K>
 							 inline int yj_SIMD_lin_search_upper_bound(int l, int r, int m, const K& key) {
-								 __m512i values = _mm512_set1_epi64(key);  // key 값을 8개로 채운 SIMD 레지스터
+								 const K* data = &(ALEX_DATA_NODE_KEY_AT(l));
+								 __m512i values = _mm512_set_epi64(key, key, key, key, key, key, key, key);
+								 int size = r-l;
 								 const int step = 8;
 
-								 // m <= key인 경우, m에서 last까지 정방향 탐색
-								 if (key_lessequal(ALEX_DATA_NODE_KEY_AT(m), key)) {
-									 const K* data = &(ALEX_DATA_NODE_KEY_AT(m));  // m 위치에서 시작
-									 int size = r - m;  // m에서 last까지의 크기
+								 for (int i = 0; i < size; i += step) {
+									 int remaining = size - i;  // 남은 데이터 크기 확인
 
-									 for (int i = 0; i < size; i += step) {
-										 // SIMD 데이터를 로드하고 비교
-										 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
-
-										 // key보다 작은 값에 대한 마스크 계산
-										 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);
-										 int non_zero_mask = ~cmp_mask & 0xFF;
-
-										 if (non_zero_mask) {
-											 int index = __builtin_ctz(non_zero_mask);  // 첫 번째 0 비트 위치 찾기
-											 return m + i + index;  // 실제 인덱스를 반환
+									 // 남은 데이터가 step보다 작으면 linear 탐색으로 처리
+									 if (remaining < step) {
+										 for (int j = 0; j < remaining; ++j) {
+											 if (ALEX_DATA_NODE_KEY_AT(i + j) == key) {
+												 return i + j;  // 선형 탐색으로 처리
+											 }
 										 }
+										 return r;  // 끝까지 탐색했는데 없으면 data_capacity_ 반환
 									 }
-									 return r;  // 끝까지 찾지 못한 경우 last 반환
-								 }
-								 // m > key인 경우, m에서 first까지 역방향 탐색
-								 else {
-									 const K* data = &(ALEX_DATA_NODE_KEY_AT(l));  // l에서 시작
-									 int size = m - l + 1;  // l에서 m까지의 크기
 
-									 for (int i = 0; i < size; i += step) {
-										 // 정방향으로 SIMD 데이터를 로드하고 비교
-										 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
+									 // SIMD 연산 수행
+									 __m512i vec = _mm512_loadu_si512(reinterpret_cast<const __m512i*>(&data[i]));
+									 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);
 
-										 // key보다 작은 값에 대한 마스크 계산
-										 __mmask8 cmp_mask = _mm512_cmplt_epi64_mask(vec, values);
-										 int non_zero_mask = ~cmp_mask & 0xFF;  // 모든 8개의 값에 대해 처리
-
-										 if (non_zero_mask) {
-											 int index = __builtin_ctz(non_zero_mask);  // 첫 번째 0 비트 위치 찾기
-											 return l + i + index;
-										 }
+									 int non_zero_mask = ~cmp_mask & 0xFF;
+									 if (non_zero_mask) {
+										 int index = __builtin_ctz(non_zero_mask);  // 첫 번째 0의 위치 찾기
+										 return i + index;
 									 }
-									 return l;  // 끝까지 찾지 못한 경우 l 반환
 								 }
+
+								 return r;
 							 }
+
 						 template <class K>
 							 inline int yj_bbinary_search_upper_bound(int l, int r, int m, const K& key) {
 								 int first = l;
 								 int last = r;
+								 int n = last - first;
 								 intptr_t pos = MINUS_ONE; //
-
-								 // key_slot_(m)>= key
-								 if(key_greaterequal(ALEX_DATA_NODE_KEY_AT(m),key)){
-									 int n = m - first;
-									 intptr_t logstep = bsr(n);
-									 intptr_t step = intptr_t(1) << logstep;
-									 while(step > 0){
-										 if(first + step >= last) break;
-										 first = (key_lessequal(ALEX_DATA_NODE_KEY_AT(first + step), key) ? first + step : first);
-										 step >>= 1;
-									 }
-									 return first + 1;}
-								 else {
-									 int n = last - m;
-									 first = m;
-									 intptr_t logstep = bsr(n);
-									 intptr_t step = intptr_t(1) << logstep;
-									 while(step > 0){
-										 if(first + step >= last) break;
-										 first = (key_lessequal(ALEX_DATA_NODE_KEY_AT(first + step), key) ? first + step : first);
-										 step >>= 1;
-									 }
-									 return first + 1;}
-
+								 intptr_t logstep = bsr(n);
+								 intptr_t step = intptr_t(1) << logstep;
+								 while(step > 0){
+								if(first+step >= last) break;
+									 first = (key_lessequal(ALEX_DATA_NODE_KEY_AT(first + step), key) ? first + step : first);
+									 step >>= 1;
+								 }
+								 return first + 1;
 
 							 }
 
@@ -1804,13 +1830,13 @@ intptr_t MINUS_ONE = -1;
 								 if (catastrophic_cost()) {
 									 return {2, -1};
 								 }
-								 if (num_keys_ > max_slots_ * kMinDensity_) {
+								 if (num_keys_ > max_slots_ * kMinDensity) {
 									 return {3, -1};
 								 }
 								 // Expand
 								 bool keep_left = is_append_mostly_right();
 								 bool keep_right = is_append_mostly_left();
-								 resize(kMinDensity_, false, keep_left, keep_right);
+								 resize(kMinDensity, false, keep_left, keep_right);
 								 num_resizes_++;
 							 }
 							 // Insert
@@ -1956,10 +1982,10 @@ intptr_t MINUS_ONE = -1;
 #endif
 							 bitmap_ = new_bitmap;
 							 expansion_threshold_ =
-								 std::min(std::max(data_capacity_ * kMaxDensity_,
+								 std::min(std::max(data_capacity_ * kMaxDensity,
 											 static_cast<double>(num_keys_ + 1)),
 										 static_cast<double>(data_capacity_));
-							 contraction_threshold_ = data_capacity_ * kMinDensity_;
+							 contraction_threshold_ = data_capacity_ * kMinDensity;
 						 }
 						 inline bool is_append_mostly_right() const {
 							 return static_cast<double>(num_right_out_of_bounds_inserts_) /
@@ -2223,7 +2249,7 @@ intptr_t MINUS_ONE = -1;
 							 }
 							 num_keys_--;
 							 if (num_keys_ < contraction_threshold_) {
-								 resize(kMaxDensity_);  // contract
+								 resize(kMaxDensity);  // contract
 								 num_resizes_++;
 							 }
 						 }
@@ -2250,7 +2276,7 @@ intptr_t MINUS_ONE = -1;
 							 }
 							 num_keys_ -= num_erased;
 							 if (num_keys_ < contraction_threshold_) {
-								 resize(kMaxDensity_);  // contract
+								 resize(kMaxDensity);  // contract
 								 num_resizes_++;
 							 }
 							 return num_erased;
@@ -2283,7 +2309,7 @@ intptr_t MINUS_ONE = -1;
 							 }
 							 num_keys_ -= num_erased;
 							 if (num_keys_ < contraction_threshold_) {
-								 resize(kMaxDensity_);  // contract
+								 resize(kMaxDensity);  // contract
 								 num_resizes_++;
 							 }
 							 return num_erased;
